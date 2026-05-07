@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Plus, TrendingDown, AlertCircle, CheckCircle, Calendar, Percent, DollarSign } from "lucide-react";
 
 import { api, setAuthToken } from "../api";
+import { notifyFinanceDataChanged } from "../events";
+import { estimateLoanMonths, formatMoney } from "../format";
+import PageHeader from "../components/PageHeader";
 
 export default function Loans() {
   const [items, setItems] = useState([]);
@@ -26,62 +29,67 @@ export default function Loans() {
   }, []);
 
   const add = async () => {
-    if (!form.loan_amount || !form.emi || !form.interest_rate) {
-      setMessage("Please fill all fields");
+    const loanAmount = Number(form.loan_amount);
+    const emi = Number(form.emi);
+    const interestRate = Number(form.interest_rate);
+    if (!Number.isFinite(loanAmount) || loanAmount <= 0 || !Number.isFinite(emi) || emi <= 0 || !Number.isFinite(interestRate) || interestRate < 0) {
+      setMessage("Enter a valid loan amount, EMI, and non-negative interest rate.");
       return;
     }
     try {
       await api.post("/loans", {
-        loan_amount: Number(form.loan_amount),
-        emi: Number(form.emi),
-        interest_rate: Number(form.interest_rate),
+        loan_amount: loanAmount,
+        emi,
+        interest_rate: interestRate,
       });
       setForm({ loan_amount: "", emi: "", interest_rate: "" });
       setMessage("Loan added successfully");
       setShowForm(false);
       await load();
+      notifyFinanceDataChanged();
       setTimeout(() => setMessage(""), 3000);
     } catch (e) {
-      setMessage("Failed to add loan");
+      setMessage(e.response?.data?.error || "Failed to add loan");
     }
   };
 
   const totalLoanAmount = items.reduce((sum, item) => sum + (Number(item.loan_amount) || 0), 0);
   const totalEMI = items.reduce((sum, item) => sum + (Number(item.emi) || 0), 0);
+  const pendingLoanAmount = Number(form.loan_amount) || 0;
+  const pendingEMI = Number(form.emi) || 0;
+  const previewLoanAmount = totalLoanAmount + (showForm ? pendingLoanAmount : 0);
+  const previewTotalEMI = totalEMI + (showForm ? pendingEMI : 0);
+  const showLoanPreview = showForm && pendingLoanAmount > 0;
+  const previewMonths = estimateLoanMonths(pendingLoanAmount, Number(form.interest_rate) || 0, pendingEMI);
 
   return (
     <div className="space-y-8">
-      {/* Header Section */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-8 text-white overflow-hidden">
-        <div className="absolute top-0 right-0 -m-24 w-96 h-96 bg-white/10 rounded-3xl blur-3xl"></div>
-        <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Loan & EMI Management</h1>
-          <p className="text-white/80">Track and manage all your loans and EMI obligations</p>
-        </div>
-      </div>
+      <PageHeader title="Loan & EMI Management" description="Track and manage all your loans and EMI obligations" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <DollarSign className="w-6 h-6 text-blue-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <DollarSign className="w-6 h-6 text-blue-900" />
             </div>
-            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">Total</span>
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">Total</span>
           </div>
           <p className="text-gray-600 text-sm font-medium mb-1">Total Loan Amount</p>
-          <p className="text-3xl font-bold text-gray-900">₹{totalLoanAmount.toLocaleString()}</p>
+          <p className="text-3xl font-bold text-gray-900">{formatMoney(showLoanPreview ? previewLoanAmount : totalLoanAmount)}</p>
+          {showLoanPreview && <p className="text-xs text-gray-500 mt-2">Projected with current draft loan</p>}
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <TrendingDown className="w-6 h-6 text-red-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <TrendingDown className="w-6 h-6 text-blue-900" />
             </div>
-            <span className="text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full">Monthly</span>
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">Monthly</span>
           </div>
           <p className="text-gray-600 text-sm font-medium mb-1">Total EMI Payment</p>
-          <p className="text-3xl font-bold text-gray-900">₹{totalEMI.toLocaleString()}</p>
+          <p className="text-3xl font-bold text-gray-900">{formatMoney(showLoanPreview ? previewTotalEMI : totalEMI)}</p>
+          {showLoanPreview && <p className="text-xs text-gray-500 mt-2">Projected monthly payment</p>}
         </div>
       </div>
 
@@ -100,7 +108,7 @@ export default function Loans() {
             <h3 className="text-lg font-bold text-gray-900 mb-6">Add New Loan / EMI</h3>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-2">Loan Amount (₹)</label>
+                <label className="text-sm font-medium text-gray-700 block mb-2">Loan Amount (INR)</label>
                 <input
                   type="number"
                   placeholder="Enter total loan amount"
@@ -110,7 +118,7 @@ export default function Loans() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700 block mb-2">Monthly EMI (₹)</label>
+                <label className="text-sm font-medium text-gray-700 block mb-2">Monthly EMI (INR)</label>
                 <input
                   type="number"
                   placeholder="Enter monthly EMI amount"
@@ -131,6 +139,17 @@ export default function Loans() {
                 />
               </div>
 
+              {showLoanPreview && pendingEMI > 0 && (
+                <div className="rounded-2xl border border-gray-200 bg-blue-50 p-4 text-sm text-blue-700">
+                  <p className="font-semibold">Projected loan summary</p>
+                  {previewMonths ? (
+                    <p className="mt-2">Estimated term: {previewMonths} months (~{Math.ceil(previewMonths / 12)} years)</p>
+                  ) : (
+                    <p className="mt-2">This EMI is too low to cover monthly interest.</p>
+                  )}
+                </div>
+              )}
+
               {message && (
                 <div className={`p-4 rounded-xl text-sm font-medium ${message.includes("successfully") ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
                   {message}
@@ -140,7 +159,7 @@ export default function Loans() {
               <div className="flex gap-3">
                 <button
                   onClick={add}
-                  className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium text-sm transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                  className="flex-1 px-6 py-3 rounded-xl bg-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800 hover:-translate-y-0.5 flex items-center justify-center gap-2"
                 >
                   <Plus className="w-5 h-5" />
                   Save Loan
@@ -172,7 +191,7 @@ export default function Loans() {
                     <h3 className="text-lg font-bold text-gray-900">Loan #{item.id}</h3>
                     <p className="text-sm text-gray-500 mt-1">Active loan</p>
                   </div>
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 text-blue-900 text-xs font-semibold px-3 py-1">
                     <CheckCircle className="w-3.5 h-3.5" />
                     Active
                   </span>
@@ -180,25 +199,25 @@ export default function Loans() {
 
                 <div className="space-y-4">
                   <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                    <p className="text-xs text-blue-600 font-medium mb-1">Loan Amount</p>
-                    <p className="text-2xl font-bold text-blue-900">₹{Number(item.loan_amount || 0).toLocaleString()}</p>
+                    <p className="text-xs text-blue-900 font-medium mb-1">Loan Amount</p>
+                    <p className="text-2xl font-bold text-blue-900">{formatMoney(item.loan_amount)}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="p-3 bg-red-50 rounded-xl border border-red-100">
-                      <p className="text-xs text-red-600 font-medium mb-1 flex items-center gap-1">
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-xs text-blue-900 font-medium mb-1 flex items-center gap-1">
                         <TrendingDown className="w-3.5 h-3.5" />
                         Monthly EMI
                       </p>
-                      <p className="text-xl font-bold text-red-900">₹{Number(item.emi || 0).toLocaleString()}</p>
+                      <p className="text-xl font-bold text-blue-900">{formatMoney(item.emi)}</p>
                     </div>
 
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100">
-                      <p className="text-xs text-amber-600 font-medium mb-1 flex items-center gap-1">
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-xs text-blue-900 font-medium mb-1 flex items-center gap-1">
                         <Percent className="w-3.5 h-3.5" />
                         Interest Rate
                       </p>
-                      <p className="text-xl font-bold text-amber-900">{Number(item.interest_rate || 0).toFixed(2)}%</p>
+                      <p className="text-xl font-bold text-blue-900">{Number(item.interest_rate || 0).toFixed(2)}%</p>
                     </div>
                   </div>
 
@@ -206,8 +225,23 @@ export default function Loans() {
                     <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
                       <p className="text-xs text-gray-600 font-medium mb-1">Estimated Duration</p>
                       <p className="text-sm font-semibold text-gray-900">
-                        {Math.ceil(Number(item.loan_amount) / Number(item.emi))} months (~{Math.ceil(Number(item.loan_amount) / Number(item.emi) / 12)} years)
+                        {item.estimated_months || estimateLoanMonths(item.loan_amount, item.interest_rate, item.emi)
+                          ? `${item.estimated_months || estimateLoanMonths(item.loan_amount, item.interest_rate, item.emi)} months (~${Math.ceil((item.estimated_months || estimateLoanMonths(item.loan_amount, item.interest_rate, item.emi)) / 12)} years)`
+                          : "EMI is too low for the interest rate"}
                       </p>
+                    </div>
+                  )}
+
+                  {item.estimated_total_payable && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                        <p className="text-xs text-gray-600 font-medium mb-1">Est. Interest</p>
+                        <p className="text-sm font-semibold text-gray-900">{formatMoney(item.estimated_interest)}</p>
+                      </div>
+                      <div className="p-3 bg-gray-50 rounded-xl border border-gray-200">
+                        <p className="text-xs text-gray-600 font-medium mb-1">Total Payable</p>
+                        <p className="text-sm font-semibold text-gray-900">{formatMoney(item.estimated_total_payable)}</p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -227,4 +261,3 @@ export default function Loans() {
     </div>
   );
 }
-

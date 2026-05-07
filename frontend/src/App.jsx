@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   Bell,
+  BarChart3,
   Bot,
   BookOpenText,
   LayoutDashboard,
-  LogIn,
   LogOut,
+  Scale,
   Sparkles,
+  Target,
   UserCircle2,
   WalletCards,
 } from "lucide-react";
@@ -14,8 +16,11 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 
 import { api, setAuthToken } from "./api";
 import Assistant from "./pages/Assistant";
+import Analytics from "./pages/Analytics";
+import BudgetPlanner from "./pages/BudgetPlanner";
 import Dashboard from "./pages/Dashboard";
 import Education from "./pages/Education";
+import LoanDecision from "./pages/LoanDecision";
 import Login from "./pages/Login";
 import Loans from "./pages/Loans";
 import Profile from "./pages/Profile";
@@ -67,7 +72,10 @@ export default function App() {
 
   const navItems = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard },
+    { to: "/analytics", label: "Analytics", icon: BarChart3 },
     { to: "/transactions", label: "Transactions", icon: WalletCards },
+    { to: "/budgets", label: "Budgets", icon: Target },
+    { to: "/decision", label: "Loan Decision", icon: Scale },
     { to: "/assistant", label: "AI Assistant", icon: Bot },
     { to: "/simulation", label: "Simulation", icon: Sparkles },
     { to: "/education", label: "Learn", icon: BookOpenText },
@@ -78,11 +86,11 @@ export default function App() {
     <>
       {isLoggedIn ? (
         <div className="flex min-h-screen bg-gray-50 text-gray-900">
-          <aside className="fixed left-0 top-0 z-20 h-screen w-64 border-r border-gray-200 bg-white px-6 py-8">
+          <aside className="fixed left-0 top-0 z-20 h-screen w-64 overflow-y-auto border-r border-gray-200 bg-white px-6 py-8">
             <div className="mb-8">
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600"></div>
-                <p className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Credit Intel</p>
+                <div className="w-8 h-8 rounded-lg bg-blue-900"></div>
+                <p className="text-lg font-bold text-blue-900">Credit Intel</p>
               </div>
               <p className="text-xs text-gray-500">AI Finance Coach</p>
             </div>
@@ -97,8 +105,8 @@ export default function App() {
                     className={({ isActive }) =>
                       `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                         isActive
-                          ? "bg-blue-50 text-blue-600 shadow-sm"
-                          : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                          ? "bg-blue-50 text-blue-900 shadow-sm"
+                          : "text-gray-600 hover:bg-blue-50 hover:text-blue-900"
                       }`
                     }
                   >
@@ -138,11 +146,11 @@ export default function App() {
                 <div className="flex items-center gap-6">
                   <button className="relative p-2.5 rounded-lg text-gray-600 hover:bg-gray-100 transition-all duration-200">
                     <Bell size={20} />
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-600 rounded-full"></span>
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-blue-900 rounded-full"></span>
                   </button>
                   <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
                     <div>
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm">
+                      <div className="w-10 h-10 rounded-lg bg-blue-900 flex items-center justify-center text-white font-bold text-sm">
                         {userEmail?.[0].toUpperCase() || "U"}
                       </div>
                     </div>
@@ -159,7 +167,10 @@ export default function App() {
               <div className="max-w-7xl mx-auto">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/analytics" element={<Analytics />} />
                   <Route path="/transactions" element={<Transactions />} />
+                  <Route path="/budgets" element={<BudgetPlanner />} />
+                  <Route path="/decision" element={<LoanDecision />} />
                   <Route path="/loans" element={<Loans />} />
                   <Route path="/assistant" element={<Assistant />} />
                   <Route path="/simulation" element={<Simulation />} />

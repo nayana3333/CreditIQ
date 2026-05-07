@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { User, Mail, Lock, ArrowRight, CheckCircle } from "lucide-react";
+import { User, Mail, Lock, ArrowRight, CheckCircle, Eye, EyeOff } from "lucide-react";
 
 import { api } from "../api";
 
@@ -12,6 +12,7 @@ export default function Register() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [agreedTerms, setAgreedTerms] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
 
   const register = async () => {
     if (!agreedTerms) {
@@ -34,22 +35,22 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 relative overflow-hidden">
       {/* Background decorative elements */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-200/20 rounded-3xl blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-200/20 rounded-3xl blur-3xl translate-x-1/2 translate-y-1/2"></div>
+      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-100/30 rounded-3xl blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+      <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-100/20 rounded-3xl blur-3xl translate-x-1/2 translate-y-1/2"></div>
 
       <div className="w-full max-w-md relative z-10">
         {/* Card */}
         <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden backdrop-blur-xl">
           {/* Header gradient */}
-          <div className="h-2 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600"></div>
+          <div className="h-2 bg-blue-900"></div>
 
           <div className="p-8">
             {/* Logo and title */}
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 mb-4">
-                <span className="text-2xl font-bold text-white">₹</span>
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-900 mb-4">
+                <span className="text-2xl font-bold text-white">$</span>
               </div>
               <h1 className="text-2xl font-bold text-gray-900">Credit Intelligence</h1>
               <p className="text-sm text-gray-600 mt-1">AI-Powered Finance Coach</p>
@@ -100,13 +101,21 @@ export default function Register() {
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="••••••••"
-                    className="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none transition-all duration-300 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full pl-11 pr-12 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none transition-all duration-300 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((value) => !value)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-900"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
               </div>
 
@@ -134,7 +143,7 @@ export default function Register() {
               <button
                 onClick={register}
                 disabled={loading}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-sm transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group"
+                className="w-full py-3 rounded-xl bg-blue-900 text-white font-semibold text-sm transition-all duration-300 hover:bg-blue-800 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group"
               >
                 {loading ? "Creating Account..." : <>
                   Create Account

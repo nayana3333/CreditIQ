@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BadgePercent, BookOpen, Landmark } from "lucide-react";
 
 import { api } from "../api";
+import PageHeader from "../components/PageHeader";
 
 export default function Education() {
   const [lessons, setLessons] = useState([]);
@@ -20,7 +21,10 @@ export default function Education() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <PageHeader title="Financial Education" description="Learn key concepts about credit scores, loans, budgeting, and making smart financial decisions." />
+      
+      <div className="space-y-6">
       <div className="rounded-2xl bg-white p-6 shadow-md">
         <h2 className="text-xl font-semibold">Learn Finance Basics</h2>
         <p className="mt-1 text-sm text-gray-500">Short lessons to improve financial literacy.</p>
@@ -33,7 +37,7 @@ export default function Education() {
             const Icon = card.icon;
             return (
               <div key={card.title} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                <span className="mb-3 inline-flex rounded-xl bg-blue-100 p-2 text-blue-600">
+                <span className="mb-3 inline-flex rounded-xl bg-blue-50 p-2 text-blue-900">
                   <Icon size={18} />
                 </span>
                 <p className="font-semibold">{card.title}</p>
@@ -60,7 +64,7 @@ export default function Education() {
             <option value="max_utilization">Max utilization</option>
           </select>
         </div>
-        <button className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90" onClick={submitQuiz}>Submit</button>
+        <button className="rounded-xl bg-blue-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-800" onClick={submitQuiz}>Submit</button>
         {result && <p className="text-sm text-gray-700">Score: <span className="font-semibold">{result.score}/{result.total}</span></p>}
       </div>
 
@@ -77,7 +81,7 @@ export default function Education() {
           </ul>
         </div>
       )}
+      </div>
     </div>
   );
 }
-

@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date
 
 from flask import Blueprint, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
@@ -12,7 +13,8 @@ analysis_bp = Blueprint("analysis", __name__)
 @jwt_required()
 def summary():
     user_id = int(get_jwt_identity())
-    txs = Transaction.query.filter_by(user_id=user_id).all()
+    month_start = date.today().replace(day=1)
+    txs = Transaction.query.filter(Transaction.user_id == user_id, Transaction.tx_date >= month_start).all()
 
     income = sum(t.amount for t in txs if t.type == "income")
     expenses = sum(t.amount for t in txs if t.type in ["expense", "emi"])

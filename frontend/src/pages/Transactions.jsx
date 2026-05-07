@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
-import { Plus, Upload, Zap, Trash2, DollarSign, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, Upload, Zap, Trash2, DollarSign, TrendingUp, TrendingDown, Pencil, Search } from "lucide-react";
 
 import { api, setAuthToken } from "../api";
+import { notifyFinanceDataChanged } from "../events";
+import { formatMoney } from "../format";
+import PageHeader from "../components/PageHeader";
 
 export default function Transactions() {
   const [items, setItems] = useState([]);
@@ -9,14 +12,21 @@ export default function Transactions() {
   const [smartText, setSmartText] = useState("Paid 300 for Zomato");
   const [csvFile, setCsvFile] = useState(null);
   const [message, setMessage] = useState("");
-  const [activeTab, setActiveTab] = useState("list");
+  const [activeTab, setActiveTab] = useState("manual");
+  const [loading, setLoading] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [filters, setFilters] = useState({ search: "", type: "all", month: "" });
 
   const load = async () => {
     const token = localStorage.getItem("token");
     if (token) {
       setAuthToken(token);
       try {
-        const { data } = await api.get("/transactions");
+        const params = {};
+        if (filters.search) params.search = filters.search;
+        if (filters.type !== "all") params.type = filters.type;
+        if (filters.month) params.month = filters.month;
+        const { data } = await api.get("/transactions", { params });
         setItems(data || []);
         localStorage.setItem("transactions_local", JSON.stringify(data || []));
       } catch (e) {
@@ -31,30 +41,54 @@ export default function Transactions() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [filters.search, filters.type, filters.month]);
 
-  const add = async () => {
-    const next = {
-      id: Date.now(),
-      ...form,
-      amount: Number(form.amount),
-      date: form.date || new Date().toISOString().slice(0, 10),
-    };
-    const merged = [next, ...items];
-    setItems(merged);
-    localStorage.setItem("transactions_local", JSON.stringify(merged));
-
-    const token = localStorage.getItem("token");
-    if (token) {
-      setAuthToken(token);
-      await api.post("/transactions", {
-        ...form,
-        amount: Number(form.amount),
-        date: form.date || new Date().toISOString().slice(0, 10),
-      });
-    }
+  const resetForm = () => {
+    setEditingId(null);
     setForm({ amount: "", type: "expense", category: "Food", date: "", description: "" });
-    setMessage("");
+  };
+
+  const save = async () => {
+    const amount = Number(form.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setMessage("Enter a valid amount greater than zero.");
+      return;
+    }
+    const token = localStorage.getItem("token");
+    try {
+      setLoading(true);
+      setAuthToken(token);
+      if (!token) {
+        const next = {
+          id: Date.now(),
+          ...form,
+          amount,
+          date: form.date || new Date().toISOString().slice(0, 10),
+        };
+        const merged = [next, ...items];
+        setItems(merged);
+        localStorage.setItem("transactions_local", JSON.stringify(merged));
+      } else {
+        const payload = {
+          ...form,
+          amount,
+          date: form.date || new Date().toISOString().slice(0, 10),
+        };
+        if (editingId) {
+          await api.put(`/transactions/${editingId}`, payload);
+        } else {
+          await api.post("/transactions", payload);
+        }
+        await load();
+      }
+      resetForm();
+      setMessage("Transaction saved. Dashboard, analytics, budgets, and assistant data refreshed.");
+      notifyFinanceDataChanged();
+    } catch (error) {
+      setMessage(error.response?.data?.error || "Could not save transaction.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const parseSmartText = async () => {
@@ -84,69 +118,79 @@ export default function Transactions() {
     setMessage(`CSV uploaded: ${data.inserted} transactions imported.`);
     setCsvFile(null);
     await load();
+    notifyFinanceDataChanged();
   };
 
   const removeTx = async (id) => {
-    const filtered = items.filter((t) => t.id !== id);
-    setItems(filtered);
-    localStorage.setItem("transactions_local", JSON.stringify(filtered));
-
     const token = localStorage.getItem("token");
-    if (token && Number.isInteger(id)) {
-      setAuthToken(token);
-      await api.delete(`/transactions/${id}`).catch(() => null);
+    try {
+      if (token && Number.isInteger(id)) {
+        setAuthToken(token);
+        await api.delete(`/transactions/${id}`);
+        await load();
+      } else {
+        const filtered = items.filter((t) => t.id !== id);
+        setItems(filtered);
+        localStorage.setItem("transactions_local", JSON.stringify(filtered));
+      }
+      setMessage("Transaction deleted. Reports refreshed.");
+      notifyFinanceDataChanged();
+    } catch (error) {
+      setMessage("Could not delete transaction.");
     }
   };
 
   const totalIncome = items.filter(t => t.type === "income").reduce((sum, t) => sum + t.amount, 0);
-  const totalExpense = items.filter(t => t.type === "expense").reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = items.filter(t => t.type === "expense" || t.type === "emi").reduce((sum, t) => sum + t.amount, 0);
+  const pendingAmount = Number(form.amount) || 0;
+  const pendingType = form.type;
+  const previewIncome = totalIncome + (pendingType === "income" ? pendingAmount : 0);
+  const previewExpense = totalExpense + (pendingType === "expense" || pendingType === "emi" ? pendingAmount : 0);
+  const previewBalance = previewIncome - previewExpense;
+  const shouldShowPreview = pendingAmount > 0 && activeTab !== "import";
 
   return (
     <div className="space-y-8">
-      {/* Header Section */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-8 text-white overflow-hidden">
-        <div className="absolute top-0 right-0 -m-24 w-96 h-96 bg-white/10 rounded-3xl blur-3xl"></div>
-        <div className="relative z-10">
-          <h1 className="text-3xl font-bold mb-2">Transaction Management</h1>
-          <p className="text-white/80">Track, manage, and analyze all your financial transactions</p>
-        </div>
-      </div>
+      <PageHeader title="Transaction Management" description="Track, manage, and analyze all your financial transactions" />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-green-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-blue-900" />
             </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2.5 py-1 rounded-full">Total</span>
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">Total</span>
           </div>
           <p className="text-gray-600 text-sm font-medium mb-1">Income</p>
-          <p className="text-3xl font-bold text-gray-900">₹{totalIncome}</p>
+          <p className="text-3xl font-bold text-gray-900">{formatMoney(shouldShowPreview ? previewIncome : totalIncome)}</p>
+          {shouldShowPreview && <p className="text-xs text-gray-500 mt-2">Includes draft transaction</p>}
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <TrendingDown className="w-6 h-6 text-red-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <TrendingDown className="w-6 h-6 text-blue-900" />
             </div>
-            <span className="text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full">Total</span>
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">Total</span>
           </div>
           <p className="text-gray-600 text-sm font-medium mb-1">Expenses</p>
-          <p className="text-3xl font-bold text-gray-900">₹{totalExpense}</p>
+          <p className="text-3xl font-bold text-gray-900">{formatMoney(shouldShowPreview ? previewExpense : totalExpense)}</p>
+          {shouldShowPreview && <p className="text-xs text-gray-500 mt-2">Includes draft transaction</p>}
         </div>
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center justify-between mb-4">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <DollarSign className="w-6 h-6 text-blue-600" />
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <DollarSign className="w-6 h-6 text-blue-900" />
             </div>
-            <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">Net</span>
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full">Net</span>
           </div>
           <p className="text-gray-600 text-sm font-medium mb-1">Balance</p>
-          <p className={`text-3xl font-bold ${totalIncome >= totalExpense ? "text-green-600" : "text-red-600"}`}>
-            ₹{totalIncome - totalExpense}
+          <p className={`text-3xl font-bold ${previewBalance >= 0 ? "text-green-600" : "text-red-600"}`}>
+            {formatMoney(shouldShowPreview ? previewBalance : totalIncome - totalExpense)}
           </p>
+          {shouldShowPreview && <p className="text-xs text-gray-500 mt-2">Projected balance with current entry</p>}
         </div>
       </div>
 
@@ -156,21 +200,21 @@ export default function Transactions() {
         <div className="flex border-b border-gray-200">
           <button
             onClick={() => setActiveTab("manual")}
-            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "manual" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-600 hover:text-gray-900"}`}
+            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "manual" ? "text-blue-900 border-b-2 border-blue-900" : "text-gray-600 hover:text-blue-900"}`}
           >
             <Plus className="w-5 h-5" />
             Add Transaction
           </button>
           <button
             onClick={() => setActiveTab("smart")}
-            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "smart" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-600 hover:text-gray-900"}`}
+            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "smart" ? "text-blue-900 border-b-2 border-blue-900" : "text-gray-600 hover:text-blue-900"}`}
           >
             <Zap className="w-5 h-5" />
             Smart Input
           </button>
           <button
             onClick={() => setActiveTab("import")}
-            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "import" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-600 hover:text-gray-900"}`}
+            className={`flex items-center gap-2 px-6 py-4 font-medium text-sm transition-all ${activeTab === "import" ? "text-blue-900 border-b-2 border-blue-900" : "text-gray-600 hover:text-blue-900"}`}
           >
             <Upload className="w-5 h-5" />
             Import CSV
@@ -184,7 +228,7 @@ export default function Transactions() {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-2">Amount (₹)</label>
+                  <label className="text-sm font-medium text-gray-700 block mb-2">Amount (INR)</label>
                   <input
                     type="number"
                     placeholder="Enter amount"
@@ -236,12 +280,21 @@ export default function Transactions() {
                 </div>
               </div>
               <button
-                onClick={add}
-                className="w-full md:w-auto px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium text-sm transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                onClick={save}
+                disabled={loading}
+                className="w-full md:w-auto px-6 py-3 rounded-xl bg-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800 hover:-translate-y-0.5 flex items-center justify-center gap-2"
               >
                 <Plus className="w-5 h-5" />
-                Add Transaction
+                {loading ? "Saving..." : editingId ? "Update Transaction" : "Add Transaction"}
               </button>
+              {editingId && (
+                <button
+                  onClick={resetForm}
+                  className="w-full md:w-auto px-6 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm transition-all hover:bg-gray-50"
+                >
+                  Cancel Edit
+                </button>
+              )}
             </div>
           )}
 
@@ -261,15 +314,15 @@ export default function Transactions() {
               <div className="flex gap-3">
                 <button
                   onClick={parseSmartText}
-                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium text-sm transition-all hover:shadow-lg hover:-translate-y-0.5 flex items-center gap-2"
+                  className="px-6 py-3 rounded-xl bg-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800 hover:-translate-y-0.5 flex items-center gap-2"
                 >
                   <Zap className="w-5 h-5" />
                   Parse
                 </button>
                 {form.amount && (
                   <button
-                    onClick={add}
-                    className="px-6 py-3 rounded-xl border-2 border-blue-600 text-blue-600 font-medium text-sm transition-all hover:bg-blue-50 flex items-center gap-2"
+                    onClick={save}
+                    className="px-6 py-3 rounded-xl border-2 border-blue-900 text-blue-900 font-medium text-sm transition-all hover:bg-blue-50 flex items-center gap-2"
                   >
                     <Plus className="w-5 h-5" />
                     Add
@@ -295,7 +348,7 @@ export default function Transactions() {
               <button
                 onClick={uploadCsv}
                 disabled={!csvFile}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium text-sm transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-6 py-3 rounded-xl bg-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <Upload className="w-5 h-5" />
                 Import CSV
@@ -315,6 +368,33 @@ export default function Transactions() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-bold text-gray-900">Transaction History</h2>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2 pl-10 pr-3 text-sm outline-none focus:border-blue-900 focus:bg-white"
+                placeholder="Search category or notes"
+                value={filters.search}
+                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              />
+            </div>
+            <select
+              className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:bg-white"
+              value={filters.type}
+              onChange={(e) => setFilters({ ...filters, type: e.target.value })}
+            >
+              <option value="all">All types</option>
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+              <option value="emi">EMI</option>
+            </select>
+            <input
+              className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-blue-900 focus:bg-white"
+              type="month"
+              value={filters.month}
+              onChange={(e) => setFilters({ ...filters, month: e.target.value })}
+            />
+          </div>
         </div>
         <div className="overflow-x-auto">
           {items.length > 0 ? (
@@ -334,17 +414,35 @@ export default function Transactions() {
                   <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 font-medium text-gray-900">{t.date}</td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${t.type === "income" ? "bg-green-100 text-green-700" : t.type === "emi" ? "bg-purple-100 text-purple-700" : "bg-red-100 text-red-700"}`}>
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-900">
                         {t.type === "income" ? <TrendingUp className="w-3.5 h-3.5" /> : t.type === "emi" ? <DollarSign className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
                         {t.type}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-gray-600">{t.category}</td>
                     <td className={`px-6 py-4 font-bold ${t.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                      {t.type === "income" ? "+" : "-"}₹{t.amount}
+                      {t.type === "income" ? "+" : "-"}{formatMoney(t.amount)}
                     </td>
                     <td className="px-6 py-4 text-gray-600 text-sm">{t.description || "-"}</td>
                     <td className="px-6 py-4">
+                      <button
+                        onClick={() => {
+                          setEditingId(t.id);
+                          setActiveTab("manual");
+                          setForm({
+                            amount: String(t.amount || ""),
+                            type: t.type || "expense",
+                            category: t.category || "Other",
+                            date: t.date || "",
+                            description: t.description || "",
+                          });
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        className="mr-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-blue-900 text-xs font-medium transition-all hover:bg-blue-100"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit
+                      </button>
                       <button
                         onClick={() => removeTx(t.id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 text-xs font-medium transition-all hover:bg-red-100"

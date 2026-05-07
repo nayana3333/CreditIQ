@@ -15,7 +15,7 @@ export default function Profile() {
   return (
     <div className="space-y-8">
       {/* Header Section */}
-      <div className="relative rounded-2xl bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 p-8 text-white overflow-hidden">
+      <div className="relative rounded-2xl bg-blue-900 p-8 text-white overflow-hidden">
         <div className="absolute top-0 right-0 -m-24 w-96 h-96 bg-white/10 rounded-3xl blur-3xl"></div>
         <div className="relative z-10">
           <h1 className="text-3xl font-bold mb-2">Account Settings</h1>
@@ -28,7 +28,7 @@ export default function Profile() {
         <div className="flex flex-col md:flex-row items-start md:items-center gap-6">
           {/* Avatar */}
           <div className="flex-shrink-0">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-2xl bg-blue-900 flex items-center justify-center">
               <span className="text-3xl font-bold text-white">{initials}</span>
             </div>
           </div>
@@ -38,11 +38,11 @@ export default function Profile() {
             <h2 className="text-2xl font-bold text-gray-900">{email.split("@")[0]}</h2>
             <p className="text-gray-600 text-sm mt-1">{email}</p>
             <div className="flex items-center gap-2 mt-3">
-              {token && <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold px-3 py-1">
+              {token && <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 text-blue-900 text-xs font-semibold px-3 py-1">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Authenticated
               </span>}
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 text-blue-900 text-xs font-semibold px-3 py-1">
                 <BadgeCheck className="w-3.5 h-3.5" />
                 Premium
               </span>
@@ -56,7 +56,7 @@ export default function Profile() {
             </button>
             <button
               onClick={handleLogout}
-              className="flex-1 md:flex-initial px-4 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 font-medium text-sm transition-all hover:bg-red-100 flex items-center justify-center gap-2"
+              className="flex-1 md:flex-initial px-4 py-2 rounded-lg bg-blue-900 border border-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800 flex items-center justify-center gap-2"
             >
               <LogOut className="w-4 h-4" />
               Logout
@@ -69,8 +69,8 @@ export default function Profile() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 bg-blue-100 rounded-lg">
-              <Mail className="w-5 h-5 text-blue-600" />
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <Mail className="w-5 h-5 text-blue-900" />
             </div>
             <h3 className="font-semibold text-gray-900">Email Address</h3>
           </div>
@@ -80,12 +80,12 @@ export default function Profile() {
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 bg-green-100 rounded-lg">
-              <ShieldCheck className="w-5 h-5 text-green-600" />
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <ShieldCheck className="w-5 h-5 text-blue-900" />
             </div>
             <h3 className="font-semibold text-gray-900">Auth Status</h3>
           </div>
-          <p className={`text-sm font-medium ${token ? "text-green-600" : "text-gray-600"}`}>
+          <p className={`text-sm font-medium ${token ? "text-blue-900" : "text-gray-600"}`}>
             {token ? "Fully Authenticated" : "Guest Access"}
           </p>
           <p className="text-xs text-gray-500 mt-3">Your session is secure</p>
@@ -93,12 +93,12 @@ export default function Profile() {
 
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2.5 bg-purple-100 rounded-lg">
-              <BadgeCheck className="w-5 h-5 text-purple-600" />
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <BadgeCheck className="w-5 h-5 text-blue-900" />
             </div>
             <h3 className="font-semibold text-gray-900">Current Plan</h3>
           </div>
-          <p className="text-sm font-medium text-purple-600">Premium</p>
+          <p className="text-sm font-medium text-blue-900">Premium</p>
           <p className="text-xs text-gray-500 mt-3">All features unlocked</p>
         </div>
       </div>
@@ -108,8 +108,8 @@ export default function Profile() {
         {/* Notifications */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 bg-amber-100 rounded-lg">
-              <Bell className="w-5 h-5 text-amber-600" />
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <Bell className="w-5 h-5 text-blue-900" />
             </div>
             <h3 className="text-lg font-bold text-gray-900">Notifications</h3>
           </div>
@@ -141,8 +141,8 @@ export default function Profile() {
         {/* Security */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2.5 bg-red-100 rounded-lg">
-              <Lock className="w-5 h-5 text-red-600" />
+            <div className="p-2.5 bg-blue-50 rounded-lg">
+              <Lock className="w-5 h-5 text-blue-900" />
             </div>
             <h3 className="text-lg font-bold text-gray-900">Security</h3>
           </div>
@@ -166,8 +166,8 @@ export default function Profile() {
       {/* Preferences */}
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
         <div className="flex items-center gap-3 mb-6">
-          <div className="p-2.5 bg-indigo-100 rounded-lg">
-            <Settings className="w-5 h-5 text-indigo-600" />
+          <div className="p-2.5 bg-blue-50 rounded-lg">
+            <Settings className="w-5 h-5 text-blue-900" />
           </div>
           <h3 className="text-lg font-bold text-gray-900">Preferences</h3>
         </div>
@@ -192,10 +192,10 @@ export default function Profile() {
       </div>
 
       {/* Danger Zone */}
-      <div className="bg-red-50 rounded-2xl p-6 border-2 border-red-200">
-        <h3 className="text-lg font-bold text-red-900 mb-4">Danger Zone</h3>
-        <p className="text-sm text-red-700 mb-4">Irreversible and destructive actions</p>
-        <button className="px-6 py-2 rounded-lg bg-red-600 text-white font-medium text-sm transition-all hover:bg-red-700">
+      <div className="bg-blue-50 rounded-2xl p-6 border-2 border-blue-200">
+        <h3 className="text-lg font-bold text-blue-900 mb-4">Danger Zone</h3>
+        <p className="text-sm text-blue-700 mb-4">Irreversible and destructive actions</p>
+        <button className="px-6 py-2 rounded-lg bg-blue-900 text-white font-medium text-sm transition-all hover:bg-blue-800">
           Delete Account
         </button>
       </div>

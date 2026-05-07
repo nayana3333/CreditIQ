@@ -1,13 +1,17 @@
 from flask import Flask
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash
 
 from .config import Config
 from .extensions import db, jwt
 from . import models
 from .routes.analysis import analysis_bp
+from .routes.analytics import analytics_bp
 from .routes.assistant import assistant_bp
 from .routes.auth import auth_bp
+from .routes.budgets import budgets_bp
 from .routes.dashboard import dashboard_bp
+from .routes.decision import decision_bp
 from .routes.education import education_bp
 from .routes.loans import loans_bp
 from .routes.ml import ml_bp
@@ -27,10 +31,13 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(transactions_bp, url_prefix="/api/v1/transactions")
     app.register_blueprint(analysis_bp, url_prefix="/api/v1/analysis")
+    app.register_blueprint(analytics_bp, url_prefix="/api/v1/analytics")
     app.register_blueprint(ml_bp, url_prefix="/api/v1/ml")
     app.register_blueprint(assistant_bp, url_prefix="/api/v1/assistant")
     app.register_blueprint(simulation_bp, url_prefix="/api/v1/simulation")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
+    app.register_blueprint(budgets_bp, url_prefix="/api/v1/budgets")
+    app.register_blueprint(decision_bp, url_prefix="/api/v1/decision")
     app.register_blueprint(loans_bp, url_prefix="/api/v1/loans")
     app.register_blueprint(education_bp, url_prefix="/api/v1/education")
     app.register_blueprint(recommendations_bp, url_prefix="/api/v1/recommendations")
@@ -52,11 +59,14 @@ def create_app():
                 "auth": "/api/v1/auth",
                 "transactions": "/api/v1/transactions",
                 "analysis": "/api/v1/analysis/summary",
+                "analytics": "/api/v1/analytics",
                 "ml_score": "/api/v1/ml/credit-score/predict",
                 "ml_risk": "/api/v1/ml/risk/predict",
                 "assistant": "/api/v1/assistant/chat",
                 "simulation": "/api/v1/simulation/run",
                 "dashboard": "/api/v1/dashboard",
+                "budgets": "/api/v1/budgets",
+                "loan_decision": "/api/v1/decision/loan",
                 "loans": "/api/v1/loans",
                 "education_lessons": "/api/v1/education/lessons",
                 "education_quiz": "/api/v1/education/quiz",
@@ -71,5 +81,16 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        
+        # Seed demo user if it doesn't exist
+        demo_user = models.User.query.filter_by(email="demo@credit.ai").first()
+        if not demo_user:
+            demo_user = models.User(
+                name="Demo User",
+                email="demo@credit.ai",
+                password_hash=generate_password_hash("password123")
+            )
+            db.session.add(demo_user)
+            db.session.commit()
 
     return app
