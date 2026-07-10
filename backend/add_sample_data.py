@@ -7,7 +7,7 @@ def add_sample_data():
     app = create_app()
     with app.app_context():
         # Get the demo user
-        user = User.query.filter_by(email="demo@credit.ai").first()
+        user = User.query.filter_by(email="demo@creditiq.com").first()
         if not user:
             print("Demo user not found!")
             return

@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-too}
+      DATABASE_URL: sqlite:////data/credit_intel.db
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-openai/gpt-4o-mini}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
+    ports:
+      - "5000:5000"
+    volumes:
+      - creditiq-data:/data
+    command: sh -c "python create_demo_user.py && gunicorn --bind 0.0.0.0:5000 run:app"
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+volumes:
+  creditiq-data:

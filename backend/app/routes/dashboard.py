@@ -1,64 +1,92 @@
+import os
+import pickle
+
 from flask import Blueprint, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from datetime import date, timedelta
 
-from ..models import Transaction
-from ..finance import risk_from_score, score_from_finances
+from ..models import CreditApplication, Loan, LoanDecision
 
 
 dashboard_bp = Blueprint("dashboard", __name__)
+
+
+def _model_accuracy():
+    metrics_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "model_metrics.pkl"))
+    try:
+        with open(metrics_path, "rb") as handle:
+            metrics = pickle.load(handle)
+        return float(metrics.get("rf", {}).get("accuracy", 0))
+    except Exception:
+        return 0
 
 
 @dashboard_bp.get("")
 @jwt_required()
 def get_dashboard():
     user_id = int(get_jwt_identity())
-    month_start = date.today().replace(day=1)
-    previous_month_end = month_start - timedelta(days=1)
-    previous_month_start = previous_month_end.replace(day=1)
-    txs = Transaction.query.filter(Transaction.user_id == user_id, Transaction.tx_date >= month_start).all()
-    previous_txs = Transaction.query.filter(
-        Transaction.user_id == user_id,
-        Transaction.tx_date >= previous_month_start,
-        Transaction.tx_date < month_start,
-    ).all()
+    applications = Loan.query.filter_by(user_id=user_id).order_by(Loan.created_at.desc()).all()
+    decisions = LoanDecision.query.filter_by(user_id=user_id).all()
+    decision_by_loan = {item.loan_id: item for item in decisions}
 
-    income = sum(t.amount for t in txs if t.type == "income")
-    expenses = sum(t.amount for t in txs if t.type in ["expense", "emi"])
-    emi = sum(t.amount for t in txs if t.type == "emi")
-    savings = income - expenses
-    score = score_from_finances(income, expenses, emi)
+    approved = sum(1 for item in decisions if item.final_decision == "approved")
+    rejected = sum(1 for item in decisions if item.final_decision == "rejected")
+    pending = max(len(applications) - approved - rejected, 0)
+    consensus = sum(1 for item in decisions if item.consensus)
+    total = len(applications)
 
-    previous_income = sum(t.amount for t in previous_txs if t.type == "income")
-    previous_expenses = sum(t.amount for t in previous_txs if t.type in ["expense", "emi"])
-    previous_emi = sum(t.amount for t in previous_txs if t.type == "emi")
-    previous_savings = previous_income - previous_expenses
-    previous_score = score_from_finances(previous_income, previous_expenses, previous_emi)
+    recent_applications = []
+    for loan in applications[:5]:
+        decision = decision_by_loan.get(loan.id)
+        recent_applications.append(
+            {
+                "id": loan.id,
+                "amount": loan.loan_amount,
+                "purpose": loan.purpose or "Credit request",
+                "date": loan.created_at.isoformat(),
+                "status": decision.final_decision if decision else loan.status or "pending",
+                "consensus": bool(decision.consensus) if decision else False,
+            }
+        )
 
-    def trend(current, previous):
-        if previous == 0:
-            return {"percent": None, "direction": "flat"}
-        delta = ((current - previous) / abs(previous)) * 100
-        return {
-            "percent": round(delta, 1),
-            "direction": "up" if delta > 0 else "down" if delta < 0 else "flat",
-        }
+    credit_apps = CreditApplication.query.filter_by(user_id=user_id).order_by(CreditApplication.created_at.desc()).all()
+    if credit_apps:
+        total = len(credit_apps)
+        approved = sum(1 for item in credit_apps if item.final_decision == "approved")
+        rejected = sum(1 for item in credit_apps if item.final_decision == "rejected")
+        pending = max(total - approved - rejected, 0)
+        consensus = sum(1 for item in credit_apps if item.consensus)
+        consensus_rate = round((consensus / total) * 100, 1) if total else 0
+        recent_applications = [
+            {
+                "id": item.id,
+                "amount": item.credit_amount,
+                "purpose": item.purpose,
+                "date": item.created_at.isoformat(),
+                "status": item.final_decision,
+                "lr_confidence": item.lr_confidence,
+                "rf_confidence": item.rf_confidence,
+                "consensus": item.consensus,
+            }
+            for item in credit_apps[:5]
+        ]
+    else:
+        consensus_rate = round((consensus / len(decisions)) * 100, 1) if decisions else 0
 
     return jsonify(
         {
-            "totals": {
-                "income": round(income, 2),
-                "expenses": round(expenses, 2),
-                "savings": round(savings, 2),
+            "total_applications": total,
+            "approved": approved,
+            "rejected": rejected,
+            "pending": pending,
+            "approval_rate": round((approved / total) * 100, 1) if total else 0,
+            "consensus_rate": consensus_rate,
+            "model_accuracy": _model_accuracy(),
+            "risk_distribution": {
+                "approved": approved,
+                "rejected": rejected,
+                "pending": pending,
             },
-            "credit_score": round(score, 0),
-            "risk_level": risk_from_score(score),
-            "score_label": "Excellent" if score >= 800 else "Good" if score >= 730 else "Fair" if score >= 650 else "Needs attention",
-            "trends": {
-                "income": trend(income, previous_income),
-                "expenses": trend(expenses, previous_expenses),
-                "savings": trend(savings, previous_savings),
-                "credit_score": trend(score, previous_score),
-            },
+            "recent_applications": recent_applications,
+            "latest_application": recent_applications[0] if recent_applications else None,
         }
     )

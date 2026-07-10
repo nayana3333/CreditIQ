@@ -54,6 +54,8 @@ yarn-error.log*
 
 # Database
 *.db
+*.db-journal
+*.db-journal*
 *.db.*.bak
 *.sqlite
 *.sqlite3
@@ -76,9 +78,18 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+pytest-cache-files-*/
+backend/pytest-cache-files-*/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+*.ipynb
+
+# Local scratch projects and generated artifacts
+ATLAS_extracted/
+ATLAS_work/
+reachlytics-venv/
+frontend/dist/
 
 # pyenv
 .python-version

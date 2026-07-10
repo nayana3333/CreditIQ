@@ -1,46 +1,96 @@
 from flask import Flask
 from flask_cors import CORS
-from werkzeug.security import generate_password_hash
+from sqlalchemy import text
 
 from .config import Config
-from .extensions import db, jwt
-from . import models
-from .routes.analysis import analysis_bp
-from .routes.analytics import analytics_bp
+from .extensions import db, jwt, limiter
 from .routes.assistant import assistant_bp
 from .routes.auth import auth_bp
-from .routes.budgets import budgets_bp
 from .routes.dashboard import dashboard_bp
-from .routes.decision import decision_bp
-from .routes.education import education_bp
 from .routes.loans import loans_bp
 from .routes.ml import ml_bp
-from .routes.recommendations import recommendations_bp
-from .routes.simulation import simulation_bp
-from .routes.transactions import transactions_bp
 
 
-def create_app():
+def _ensure_sqlite_columns():
+    """Add new nullable loan columns for existing local SQLite databases."""
+    engine = db.engine
+    if engine.dialect.name != "sqlite":
+        return
+
+    desired_columns = {
+        "duration": "INTEGER",
+        "purpose": "VARCHAR(80)",
+        "checking_status": "VARCHAR(80)",
+        "credit_history": "VARCHAR(120)",
+        "savings_status": "VARCHAR(80)",
+        "employment": "VARCHAR(80)",
+        "installment_rate": "INTEGER",
+        "personal_status": "VARCHAR(80)",
+        "other_parties": "VARCHAR(80)",
+        "residence_since": "INTEGER",
+        "property_magnitude": "VARCHAR(80)",
+        "age": "INTEGER",
+        "other_payment_plans": "VARCHAR(80)",
+        "housing": "VARCHAR(80)",
+        "existing_credits": "INTEGER",
+        "job": "VARCHAR(80)",
+        "num_dependents": "INTEGER",
+        "own_telephone": "VARCHAR(40)",
+        "foreign_worker": "VARCHAR(40)",
+        "status": "VARCHAR(20)",
+    }
+    existing = {
+        row[1]
+        for row in db.session.execute(text("PRAGMA table_info(loan)")).fetchall()
+    }
+    for column, column_type in desired_columns.items():
+        if column not in existing:
+            db.session.execute(text(f"ALTER TABLE loan ADD COLUMN {column} {column_type}"))
+
+    credit_app_tables = {
+        row[0]
+        for row in db.session.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+    }
+    if "credit_applications" in credit_app_tables:
+        credit_app_columns = {
+            "lr_decision": "VARCHAR(20)",
+            "lr_confidence": "FLOAT",
+            "lr_good_prob": "FLOAT",
+            "lr_bad_prob": "FLOAT",
+            "rf_decision": "VARCHAR(20)",
+            "rf_confidence": "FLOAT",
+            "rf_good_prob": "FLOAT",
+            "rf_bad_prob": "FLOAT",
+            "consensus": "BOOLEAN",
+            "lr_shap_reasons": "TEXT",
+            "rf_shap_reasons": "TEXT",
+        }
+        existing_credit_app_columns = {
+            row[1]
+            for row in db.session.execute(text("PRAGMA table_info(credit_applications)")).fetchall()
+        }
+        for column, column_type in credit_app_columns.items():
+            if column not in existing_credit_app_columns:
+                db.session.execute(text(f"ALTER TABLE credit_applications ADD COLUMN {column} {column_type}"))
+    db.session.commit()
+
+
+def create_app(test_config=None):
     app = Flask(__name__)
     app.config.from_object(Config)
+    if test_config:
+        app.config.update(test_config)
 
     CORS(app)
     db.init_app(app)
     jwt.init_app(app)
+    limiter.init_app(app)
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
-    app.register_blueprint(transactions_bp, url_prefix="/api/v1/transactions")
-    app.register_blueprint(analysis_bp, url_prefix="/api/v1/analysis")
-    app.register_blueprint(analytics_bp, url_prefix="/api/v1/analytics")
     app.register_blueprint(ml_bp, url_prefix="/api/v1/ml")
     app.register_blueprint(assistant_bp, url_prefix="/api/v1/assistant")
-    app.register_blueprint(simulation_bp, url_prefix="/api/v1/simulation")
     app.register_blueprint(dashboard_bp, url_prefix="/api/v1/dashboard")
-    app.register_blueprint(budgets_bp, url_prefix="/api/v1/budgets")
-    app.register_blueprint(decision_bp, url_prefix="/api/v1/decision")
     app.register_blueprint(loans_bp, url_prefix="/api/v1/loans")
-    app.register_blueprint(education_bp, url_prefix="/api/v1/education")
-    app.register_blueprint(recommendations_bp, url_prefix="/api/v1/recommendations")
 
     @app.get("/")
     def index():
@@ -57,20 +107,13 @@ def create_app():
             "version": "v1",
             "endpoints": {
                 "auth": "/api/v1/auth",
-                "transactions": "/api/v1/transactions",
-                "analysis": "/api/v1/analysis/summary",
-                "analytics": "/api/v1/analytics",
-                "ml_score": "/api/v1/ml/credit-score/predict",
-                "ml_risk": "/api/v1/ml/risk/predict",
+                "ml_predict": "/api/v1/ml/predict",
+                "ml_metrics": "/api/v1/ml/metrics",
+                "ml_simulate": "/api/v1/ml/simulate",
+                "ml_batch": "/api/v1/ml/batch",
                 "assistant": "/api/v1/assistant/chat",
-                "simulation": "/api/v1/simulation/run",
                 "dashboard": "/api/v1/dashboard",
-                "budgets": "/api/v1/budgets",
-                "loan_decision": "/api/v1/decision/loan",
                 "loans": "/api/v1/loans",
-                "education_lessons": "/api/v1/education/lessons",
-                "education_quiz": "/api/v1/education/quiz",
-                "recommendations": "/api/v1/recommendations",
                 "health": "/api/v1/health",
             },
         }
@@ -81,16 +124,6 @@ def create_app():
 
     with app.app_context():
         db.create_all()
-        
-        # Seed demo user if it doesn't exist
-        demo_user = models.User.query.filter_by(email="demo@credit.ai").first()
-        if not demo_user:
-            demo_user = models.User(
-                name="Demo User",
-                email="demo@credit.ai",
-                password_hash=generate_password_hash("password123")
-            )
-            db.session.add(demo_user)
-            db.session.commit()
+        _ensure_sqlite_columns()
 
     return app

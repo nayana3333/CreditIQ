@@ -1,4 +1,4 @@
-export const formatMoney = (value) =>
+﻿export const formatMoney = (value) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
@@ -23,3 +23,6 @@ export const estimateLoanMonths = (principal, annualRate, emi) => {
   if (e <= p * r) return null;
   return Math.ceil(-Math.log(1 - (p * r) / e) / Math.log(1 + r));
 };
+
+
+

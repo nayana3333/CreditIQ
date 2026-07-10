@@ -1,144 +1,131 @@
-import re
+import json
+import os
 
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
-
-from ..finance import emi_for_loan, loan_months, money, safe_calculate
-from ..models import Budget, Loan, Transaction
 
 assistant_bp = Blueprint("assistant", __name__)
 
+SYSTEM_PROMPT = """You are CreditIQ AI Advisor, a credit counselor embedded in a fintech platform.
+You help users understand credit decisions, SHAP explainability results, model metrics, loan planning, budgeting, EMI tradeoffs, and practical ways to improve creditworthiness.
 
-def _number_after(pattern, text, default=None):
-    match = re.search(pattern, text)
-    if not match:
-        return default
-    return float(match.group(1).replace(",", ""))
+Rules:
+- Answer the user's actual question directly, even if it is broad.
+- Use application context and model outputs when available.
+- Be specific and use actual numbers when available.
+- Be actionable: give concrete steps, not vague advice.
+- Keep answers clear and structured; use short bullets for multi-step guidance.
+- Explain SHAP values, ROC-AUC, confusion matrices, LR, and RF in plain English when asked.
+- If the question is unrelated to finance/credit, answer briefly if safe, then connect back to how CreditIQ can help.
+- For legal, tax, or investment decisions, give educational guidance and suggest consulting a qualified professional.
+- Never say "I'm just an AI".
+- Never invent application facts that are not in the loaded context.
+
+{loan_context}"""
 
 
-def _extract_expression(text):
-    cleaned = text.lower().replace("what is", "").replace("calculate", "")
-    match = re.search(r"[-+*/().\d\s]+", cleaned)
-    if not match:
-        return None
-    expression = match.group(0).strip()
-    return expression if re.search(r"\d", expression) and re.search(r"[+\-*/]", expression) else None
-
-
-def _finance_reply(text):
-    amount = _number_after(r"(?:loan|principal|amount)\D+(\d[\d,]*(?:\.\d+)?)", text)
-    rate = _number_after(r"(?:rate|interest)\D+(\d[\d,]*(?:\.\d+)?)", text, 0)
-    months = _number_after(r"(\d[\d,]*(?:\.\d+)?)\s*(?:months|month)", text)
-    emi = _number_after(r"(?:emi|payment)\D+(\d[\d,]*(?:\.\d+)?)", text)
-
-    if "emi" in text and amount and months:
-        computed = emi_for_loan(amount, rate or 0, months)
-        if computed is not None:
-            return (
-                f"For a loan of Rs {money(amount):,.2f} at {rate or 0:.2f}% for {int(months)} months, "
-                f"the estimated EMI is Rs {computed:,.2f}."
-            )
-
-    if any(word in text for word in ["how long", "duration", "tenure", "months"]) and amount and emi:
-        computed_months = loan_months(amount, rate or 0, emi)
-        if computed_months is None:
-            return "That EMI is too low to cover the monthly interest. Increase the EMI or reduce the loan amount/rate."
-        years = computed_months / 12
+def _fallback_reply(message, loan_context=""):
+    lower = message.lower()
+    if "shap" in lower:
         return (
-            f"At Rs {money(emi):,.2f} EMI, Rs {money(amount):,.2f} principal and {rate or 0:.2f}% annual interest, "
-            f"the estimated payoff time is {computed_months} months, about {years:.1f} years."
+            "SHAP explains which inputs pushed the model toward approval or rejection. "
+            "In CreditIQ, a negative direction means the factor increased risk, while a positive direction helped approval. "
+            "Use the top factors as an action list: reduce risky loan terms, improve account balances, or strengthen credit history before reapplying."
         )
-
-    return None
-
-
-def _user_context():
-    try:
-        verify_jwt_in_request(optional=True)
-        user_id = get_jwt_identity()
-        if not user_id:
-            return None
-        txs = Transaction.query.filter_by(user_id=int(user_id)).all()
-        loans = Loan.query.filter_by(user_id=int(user_id)).all()
-        budgets = Budget.query.filter_by(user_id=int(user_id)).all()
-        income = sum(tx.amount for tx in txs if tx.type == "income")
-        expenses = sum(tx.amount for tx in txs if tx.type in ["expense", "emi"])
-        emi = sum(item.emi for item in loans)
-        top = {}
-        for tx in txs:
-            if tx.type in ["expense", "emi"]:
-                top[tx.category] = top.get(tx.category, 0) + tx.amount
-        top_category = max(top.items(), key=lambda item: item[1])[0] if top else "none yet"
-        return {"income": income, "expenses": expenses, "emi": emi, "budgets": budgets, "top_category": top_category}
-    except Exception:
-        return None
+    if "emi" in lower or "loan" in lower or "approval" in lower:
+        return (
+            "To improve approval odds, focus on three levers: reduce the loan amount, choose a shorter affordable tenure, and strengthen repayment signals such as stable employment and account balance. "
+            "If an application context is loaded, compare the highest-impact SHAP factors first because they explain what mattered most in this decision."
+        )
+    if "roc" in lower or "auc" in lower or "confusion" in lower:
+        return (
+            "ROC-AUC measures how well the model separates good and risky applicants across thresholds; closer to 1.0 is better. "
+            "A confusion matrix shows correct and incorrect approvals/rejections, helping you see whether the model misses risky applicants or rejects safe ones."
+        )
+    return (
+        "I can help with credit decisions, SHAP explanations, loan planning, EMI tradeoffs, budgeting, and ways to improve creditworthiness. "
+        "Ask about a specific application, model factor, or financial scenario and I will give practical next steps."
+    )
 
 
 @assistant_bp.post("/chat")
 def chat():
-    text = ((request.get_json() or {}).get("message") or "").strip()
-    lowered = text.lower()
-
-    if not text:
-        return jsonify({"reply": "Ask me a finance question, EMI calculation, budget doubt, or simple math problem."}), 400
-
-    try:
-        expression = _extract_expression(text)
-        if expression:
-            result = safe_calculate(expression)
-            return jsonify({"reply": f"{expression} = {result:,.2f}"})
-    except Exception:
-        pass
-
-    reply = _finance_reply(lowered)
-    if reply:
-        return jsonify({"reply": reply})
-
-    context = _user_context()
-    if context and any(word in lowered for word in ["my", "me", "recommend", "budget", "spending", "expense", "emi", "loan", "score"]):
-        income = context["income"]
-        expenses = context["expenses"]
-        savings_rate = ((income - expenses) / income) if income else 0
-        emi_ratio = (context["emi"] / income) if income else 0
-        budget_count = len(context["budgets"])
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key or api_key == "your-openai-api-key-here":
         return jsonify(
             {
-                "reply": (
-                    f"Based on your data: income is Rs {income:,.2f}, expenses are Rs {expenses:,.2f}, "
-                    f"savings rate is {savings_rate * 100:.1f}%, EMI burden is {emi_ratio * 100:.1f}%, "
-                    f"and your highest spending category is {context['top_category']}. "
-                    f"You have {budget_count} active budgets. "
-                    f"{'Reduce discretionary expenses first.' if savings_rate < 0.1 else 'Your savings base is healthy; keep tracking category limits.'}"
-                )
+                "reply": "AI Advisor requires an OpenAI API key. Add OPENAI_API_KEY to your .env file to enable this feature.",
+                "status": "success",
             }
         )
 
-    if any(word in lowered for word in ["credit", "cibil", "score"]):
-        reply = (
-            "To improve your credit score: pay every EMI/card bill on time, keep credit utilization below 30%, "
-            "avoid many loan applications in a short period, and keep older accounts active when possible."
-        )
-    elif any(word in lowered for word in ["overspend", "spend", "budget", "expense"]):
-        reply = (
-            "A sensible budget target is: essentials under 50% of income, wants under 30%, and savings/debt payoff near 20%. "
-            "If expenses cross 75% of income, cut flexible categories first."
-        )
-    elif any(word in lowered for word in ["loan", "emi", "interest", "debt"]):
-        reply = (
-            "Keep total EMIs below 35-40% of monthly income. You can ask: "
-            "'EMI for loan 500000 at 10% for 60 months' or 'how long for loan 300000 EMI 9000 rate 12%'."
-        )
-    elif any(word in lowered for word in ["save", "saving", "invest"]):
-        reply = (
-            "Build one month of emergency savings first, then move toward 3-6 months. Invest only after high-interest debt "
-            "is controlled and monthly essentials are covered."
-        )
-    elif any(word in lowered for word in ["hello", "hi", "hey"]):
-        reply = "Hi! Ask me about credit score, EMIs, budgeting, savings, loans, or a quick calculation."
-    else:
-        reply = (
-            "I can help with finance questions, EMI/loan math, budgeting, credit-score improvement, savings plans, "
-            "and simple arithmetic. Please include the numbers if you want a calculation."
-        )
+    data = request.get_json() or {}
+    message = data.get("message", "").strip()
+    application_id = data.get("application_id") or data.get("loan_id")
+    history = data.get("conversation_history", [])
 
-    return jsonify({"reply": reply})
+    if not message:
+        return jsonify({"reply": "Please ask a question.", "status": "error"}), 400
+
+    loan_context = ""
+    if application_id:
+        try:
+            from app.models import CreditApplication
+
+            app_record = CreditApplication.query.get(int(application_id))
+            if app_record:
+                rf_reasons = json.loads(app_record.rf_shap_reasons or "[]")
+                top_factors = rf_reasons[:3] if rf_reasons else []
+                factors_text = "\n".join(
+                    [
+                        f"  - {item.get('label', '')}: impact {item.get('impact', 0):.2f} ({'pushes toward rejection' if item.get('direction') == 'negative' else 'pushes toward approval'})"
+                        for item in top_factors
+                    ]
+                )
+                loan_context = f"""
+LOADED APPLICATION #{application_id}:
+- Loan Amount: {app_record.credit_amount or 'N/A'}
+- Duration: {app_record.duration or 'N/A'} months
+- Purpose: {app_record.purpose or 'N/A'}
+- Age: {app_record.age or 'N/A'}
+- Final Decision: {app_record.final_decision or 'N/A'}
+- Logistic Regression: {app_record.lr_decision or 'N/A'} ({(app_record.lr_confidence or 0) * 100:.1f}% confidence)
+- Random Forest: {app_record.rf_decision or 'N/A'} ({(app_record.rf_confidence or 0) * 100:.1f}% confidence)
+- Models agree: {app_record.consensus or False}
+- Top risk factors (SHAP):
+{factors_text or '  Not available'}
+
+When user asks why they were rejected or approved, reference these specific factors."""
+        except Exception:
+            pass
+
+    try:
+        from openai import OpenAI
+
+        base_url = os.environ.get("OPENAI_BASE_URL") or None
+        model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        default_headers = {
+            "HTTP-Referer": os.environ.get("APP_PUBLIC_URL", "http://localhost:5173"),
+            "X-Title": "CreditIQ AI Advisor",
+        }
+        client = OpenAI(api_key=api_key, base_url=base_url, default_headers=default_headers)
+        messages = [{"role": "system", "content": SYSTEM_PROMPT.format(loan_context=loan_context)}]
+        for item in history[-10:]:
+            role = item.get("role", "user")
+            content = item.get("content", "")
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=800,
+            temperature=0.45,
+        )
+        return jsonify({"reply": response.choices[0].message.content, "status": "success"})
+    except Exception:
+        return jsonify({
+            "reply": _fallback_reply(message, loan_context),
+            "status": "fallback",
+            "note": "Live AI provider was unavailable, so CreditIQ used local advisor guidance.",
+        })
