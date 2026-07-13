@@ -1,17 +1,17 @@
 ﻿import { Navigate, Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/layout/AppLayout";
-import Assistant from "./pages/AssistantUpgraded";
-import Analytics from "./pages/AnalyticsUpgraded";
+import Assistant from "./pages/Assistant";
+import Analytics from "./pages/Analytics";
 import Applications from "./pages/Applications";
 import BatchPredict from "./pages/BatchPredict";
-import Dashboard from "./pages/DashboardRecruiter";
-import LoanDecision from "./pages/LoanDecisionRecruiter";
+import Dashboard from "./pages/Dashboard";
+import LoanDecision from "./pages/LoanDecision";
 import LoanForm from "./pages/LoanForm";
-import Login from "./pages/LoginRecruiter";
+import Login from "./pages/Login";
 import Profile from "./pages/Profile";
-import Register from "./pages/RegisterRecruiter";
-import Simulation from "./pages/SimulationUpgraded";
+import Register from "./pages/Register";
+import Simulation from "./pages/Simulation";
 
 function Protected({ children }) {
   if (!localStorage.getItem("token")) {

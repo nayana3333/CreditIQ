@@ -12,7 +12,7 @@ const sliders = [
   ["installment_rate", 1, 4, 1],
 ];
 
-export default function SimulationUpgraded() {
+export default function Simulation() {
   const [form, setForm] = useState(() => {
     try {
       return { ...DEFAULT_LOAN_INPUT, ...(JSON.parse(localStorage.getItem("creditiq_simulation_input")) || {}) };

@@ -6,7 +6,7 @@ import { api, setAuthToken } from "../api";
 
 const chips = ["Why was I rejected?", "How can I improve approval odds?", "What does credit history mean?", "Explain the SHAP factors", "What if I reduce my loan amount?", "Compare LR vs RF decision"];
 
-export default function AssistantUpgraded() {
+export default function Assistant() {
   const [params] = useSearchParams();
   const [applicationId] = useState(params.get("application_id") || params.get("loan_id") || localStorage.getItem("creditiq_context_loan_id"));
   const [messages, setMessages] = useState([]);

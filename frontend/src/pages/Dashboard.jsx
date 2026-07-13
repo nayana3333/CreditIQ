@@ -57,7 +57,7 @@ function normalizeApplicationDecision(item) {
   };
 }
 
-export default function DashboardRecruiter() {
+export default function Dashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState({});
   const [latestDecision, setLatestDecision] = useState(null);

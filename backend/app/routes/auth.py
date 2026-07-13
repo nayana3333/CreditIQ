@@ -114,7 +114,7 @@ def login():
 def demo_login():
     user = User.query.filter_by(email="demo@creditiq.com").first()
     if not user:
-        user = User(name="Demo User", email="demo@creditiq.com", password_hash=generate_password_hash("demo123"))
+        user = User(name="Demo User", email="demo@creditiq.com", password_hash=generate_password_hash("demo12345"))
         db.session.add(user)
         db.session.commit()
 

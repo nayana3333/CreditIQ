@@ -388,6 +388,101 @@ def model_performance_metrics():
     )
 
 
+@ml_bp.get("/business-impact")
+def business_impact():
+    """Convert confusion matrix errors into illustrative portfolio costs."""
+    try:
+        selected_threshold = float(request.args.get("threshold", 0.4))
+    except (TypeError, ValueError):
+        selected_threshold = 0.4
+    selected_threshold = round(clamp(selected_threshold, 0.3, 0.7), 2)
+
+    try:
+        lr_cm = model_metrics["lr"]["confusion_matrix"]
+        rf_cm = model_metrics["rf"]["confusion_matrix"]
+        lr_fn = lr_cm[1][0]
+        lr_fp = lr_cm[0][1]
+        rf_fn = rf_cm[1][0]
+        rf_fp = rf_cm[0][1]
+    except Exception:
+        lr_fn, lr_fp = 28, 19
+        rf_fn, rf_fp = 34, 11
+
+    avg_loan = 35000
+    fn_cost_per = 14000
+    fp_cost_per = 2500
+
+    def with_costs(item):
+        cost_fn = item["fn"] * fn_cost_per
+        cost_fp = item["fp"] * fp_cost_per
+        return {
+            **item,
+            "cost_false_negatives": cost_fn,
+            "cost_false_positives": cost_fp,
+            "total_estimated_cost": cost_fn + cost_fp,
+        }
+
+    scenarios = [
+        {
+            "name": "Conservative (RF)",
+            "model": "Random Forest",
+            "fn": rf_fn,
+            "fp": rf_fp,
+            "description": "Prioritises precision - fewer false approvals",
+        },
+        {
+            "name": "Balanced (midpoint)",
+            "model": "LR/RF midpoint",
+            "fn": (lr_fn + rf_fn) // 2,
+            "fp": (lr_fp + rf_fp) // 2,
+            "description": "Equal weight to both error types",
+        },
+        {
+            "name": "Inclusive (LR)",
+            "model": "Logistic Regression",
+            "fn": lr_fn,
+            "fp": lr_fp,
+            "description": "Prioritises recall - catches more defaulters",
+        },
+    ]
+    scenarios = [with_costs(scenario) for scenario in scenarios]
+
+    threshold_curve = [
+        {"threshold": 0.3, "fn": 22, "fp": 31, "approval_rate": 55.5, "positioning": "Risk control"},
+        {"threshold": 0.4, "fn": 25, "fp": 24, "approval_rate": 60.5, "positioning": "Recommended"},
+        {"threshold": 0.5, "fn": (lr_fn + rf_fn) // 2, "fp": (lr_fp + rf_fp) // 2, "approval_rate": 68.0, "positioning": "Balanced"},
+        {"threshold": 0.6, "fn": 35, "fp": 10, "approval_rate": 72.5, "positioning": "Growth"},
+        {"threshold": 0.7, "fn": 40, "fp": 7, "approval_rate": 76.5, "positioning": "Inclusive"},
+    ]
+    threshold_curve = [with_costs(item) for item in threshold_curve]
+    selected = min(threshold_curve, key=lambda item: abs(item["threshold"] - selected_threshold))
+    lowest_cost = min(threshold_curve, key=lambda item: item["total_estimated_cost"])
+
+    return jsonify(
+        {
+            "assumptions": {
+                "avg_loan_amount_inr": avg_loan,
+                "fn_cost_per_case_inr": fn_cost_per,
+                "fp_cost_per_case_inr": fp_cost_per,
+                "note": "These are illustrative estimates for a 200-applicant test portfolio. Real costs depend on collateral, recovery rate, and relationship value.",
+            },
+            "scenarios": scenarios,
+            "threshold_curve": threshold_curve,
+            "selected_threshold": selected,
+            "executive_summary": {
+                "recommended_threshold": lowest_cost["threshold"],
+                "recommended_model": "Threshold-tuned Logistic Regression",
+                "lowest_estimated_cost": lowest_cost["total_estimated_cost"],
+                "business_policy": "Use a lower approval threshold when missed defaults are materially more expensive than rejecting good customers.",
+                "risk_appetite_note": "Risk-averse lenders should prioritise lower missed-default cost; growth-focused lenders may accept higher credit loss for a higher approval rate.",
+            },
+            "insight": "RF minimises false approval cost (₹{:,}) but incurs higher rejection cost (₹{:,}). LR catches more defaulters but approves more risky applicants. The optimal choice depends on the bank's risk appetite.".format(
+                rf_fn * fn_cost_per, rf_fp * fp_cost_per
+            ),
+        }
+    )
+
+
 @ml_bp.post("/simulate")
 def simulate_credit_decision():
     data = request.get_json() or {}

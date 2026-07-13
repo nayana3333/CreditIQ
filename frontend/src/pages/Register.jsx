@@ -4,7 +4,7 @@ import { ArrowRight, Eye, EyeOff, Lock, Mail, User } from "lucide-react";
 
 import { api } from "../api";
 
-export default function RegisterRecruiter() {
+export default function Register() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

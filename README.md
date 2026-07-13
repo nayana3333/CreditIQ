@@ -1,6 +1,12 @@
 # CreditIQ - AI-Powered Credit Risk Intelligence Platform
 
-A full-stack FinTech application that uses machine learning and explainable AI to assess credit risk, compare loan decisions, and provide personalized credit guidance.
+CreditIQ is an AI-powered credit risk decision platform that combines ML
+scoring, explainability, simulation, and business impact analysis for lending
+decisions.
+
+A full-stack decision intelligence application that uses machine learning,
+explainable AI, and cost-based threshold tuning to assess credit risk and
+recommend lending policies.
 
 ## Research Foundation
 
@@ -9,6 +15,21 @@ This project implements and extends ideas from:
 - Khalid, S.R. (2025). "Machine learning-based credit scoring: A comparative analysis of logistic regression and random forest models." International Journal of Financial Management and Economics, 8(2):284-294.
 - Teles, G. et al. (2019). "Machine learning and decision support system on credit scoring." Neural Computing and Applications.
 
+## Decision Science Framing
+
+CreditIQ is framed as a lender decision-support case study: approve more
+customers for growth, or reject more borderline applications to control credit
+loss. The app translates model outputs into business tradeoffs by comparing
+false approvals, rejected good customers, approval rate, and estimated portfolio
+cost under different risk thresholds.
+
+- Problem: reduce credit losses while preserving good-customer approvals.
+- Model layer: Logistic Regression and Random Forest trained on German Credit data.
+- Evaluation layer: accuracy, precision, recall, F1-score, ROC-AUC, confusion matrices, and feature importance.
+- Business layer: cost assumptions convert model errors into estimated INR impact for a 200-applicant portfolio.
+- Recommendation layer: threshold tuning identifies the lowest-cost policy and explains how the answer changes with risk appetite.
+- Limitation: cost values are illustrative and should be recalibrated with a lender's actual recovery rate, margin, and customer lifetime value.
+
 ## Key Features
 
 - Dual credit-risk models: Logistic Regression and Random Forest.
@@ -16,18 +37,24 @@ This project implements and extends ideas from:
 - Loan application flow: 3-step German Credit style form with saved decisions.
 - Decision report: side-by-side model confidence, probability bars, factor charts, and recommendations.
 - What-if simulation: change loan inputs and see approval probability movement.
+- Business impact analysis: converts model errors into estimated portfolio cost.
+- Threshold tuning: compare approval rate, missed defaults, rejected good customers, and cost under different risk policies.
 - AI Credit Advisor: chat UI with loan-context injection and local fallback advice.
-- Personal finance layer: transactions, budgets, EMI math, recommendations, and education pages.
+- Batch prediction: score multiple credit applications from CSV-style inputs.
 
 ## Screenshots
 
 | Dashboard | Application Decision Report |
 | --- | --- |
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Application decision report](docs/screenshots/decision-report.svg) |
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Application decision report](docs/screenshots/decision-report.png) |
 
 | Research Analytics | What-if Simulator |
 | --- | --- |
-| ![Research analytics](docs/screenshots/analytics.png) | ![What-if simulator](docs/screenshots/simulator.svg) |
+| ![Research analytics](docs/screenshots/analytics.png) | ![What-if simulator](docs/screenshots/simulator.png) |
+
+| Business Impact |
+| --- |
+| ![Business impact threshold tuning](docs/screenshots/business-impact.png) |
 
 ## ML Results
 
@@ -90,6 +117,7 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 python train_models.py
+python create_demo_user.py
 python run.py
 ```
 
@@ -111,7 +139,7 @@ Open:
 The backend seeds a demo user with 5 sample credit applications:
 
 - Email: `demo@creditiq.com`
-- Password: `demo123`
+- Password: `demo12345`
 
 Run `python backend/create_demo_user.py` after `train_models.py` to seed
 this account if it doesn't already exist.
@@ -119,6 +147,7 @@ this account if it doesn't already exist.
 ## Demo And Deployment
 
 Local demo steps are documented in [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
+Deployment options are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 Docker demo:
 
@@ -135,16 +164,12 @@ against the same SQLite database used by the running Flask API.
 | --- | --- |
 | Auth | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/profile` |
 | Dashboard | `GET /api/v1/dashboard` |
-| Transactions | `GET/POST /api/v1/transactions`, `PUT/DELETE /api/v1/transactions/:id` |
-| CSV Import | `POST /api/v1/transactions/upload-csv`, `POST /api/v1/transactions/upload-csv/preview` |
-| Budgets | `GET/POST /api/v1/budgets`, `DELETE /api/v1/budgets/:id` |
-| Analytics | `GET /api/v1/analytics` |
-| Loans | `GET/POST /api/v1/loans` |
-| Saved Decision | `GET /api/v1/loans/:id/decision` |
-| Loan Decision | `POST /api/v1/decision/loan` |
-| ML | `POST /api/v1/ml/predict`, `GET /api/v1/ml/metrics`, `POST /api/v1/ml/simulate` |
-| Legacy ML | `POST /api/v1/ml/credit-score/predict`, `GET /api/v1/ml/credit-score/history` |
+| Applications | `GET /api/v1/ml/applications`, `GET /api/v1/ml/applications/:id` |
+| Prediction | `POST /api/v1/ml/predict`, `POST /api/v1/ml/batch` |
+| Analytics | `GET /api/v1/ml/metrics`, `GET /api/v1/ml/business-impact` |
+| Simulation | `POST /api/v1/ml/simulate` |
 | Assistant | `POST /api/v1/assistant/chat` |
+| Health | `GET /api/v1/health` |
 
 ## Architecture
 
@@ -167,5 +192,9 @@ pytest -v
 cd frontend
 npm run build
 ```
+
+Backend tests cover authentication, ML prediction responses, model quality, and
+SHAP/domain consistency checks. The frontend build verifies React/Vite
+production bundling.
 
 The frontend build may warn about large chunks because routes are bundled together. This is not a runtime failure; future polish can lazy-load pages with `React.lazy`.

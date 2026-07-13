@@ -86,7 +86,7 @@ function formatSummaryValue(key, value) {
   return displayValue(key, value);
 }
 
-export default function LoanDecisionRecruiter() {
+export default function LoanDecision() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();

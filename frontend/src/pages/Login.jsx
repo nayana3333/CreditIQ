@@ -4,7 +4,7 @@ import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { api, setAuthToken } from "../api";
 
-export default function LoginRecruiter() {
+export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");

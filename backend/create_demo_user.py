@@ -9,6 +9,8 @@ from pathlib import Path
 from werkzeug.security import generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
+DEMO_EMAIL = "demo@creditiq.com"
+DEMO_PASSWORD = "demo12345"
 
 
 def sqlite_path_from_env():
@@ -118,14 +120,18 @@ def main():
     ensure_tables(con)
 
     now = utc_now().isoformat(sep=" ", timespec="seconds")
-    row = con.execute("SELECT id FROM user WHERE email = ?", ("demo@creditiq.com",)).fetchone()
+    row = con.execute("SELECT id FROM user WHERE email = ?", (DEMO_EMAIL,)).fetchone()
     if row:
         user_id = row["id"]
+        con.execute(
+            "UPDATE user SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(DEMO_PASSWORD), user_id),
+        )
         print("Demo user already exists.")
     else:
         cur = con.execute(
             "INSERT INTO user (name, email, password_hash, created_at) VALUES (?, ?, ?, ?)",
-            ("Demo User", "demo@creditiq.com", generate_password_hash("demo123"), now),
+            ("Demo User", DEMO_EMAIL, generate_password_hash(DEMO_PASSWORD), now),
         )
         user_id = cur.lastrowid
         print("Created demo user.")
@@ -156,13 +162,13 @@ def main():
                 sample["rf_decision"], sample["rf_confidence"], rf_good, rf_bad, sample["final_decision"], int(sample["consensus"]),
                 reasons, reasons, (utc_now() - timedelta(days=index * 3)).isoformat(sep=" ", timespec="seconds"),
             ))
-        print(f"Added {len(SAMPLES) - existing_apps} sample applications for demo@creditiq.com.")
+        print(f"Added {len(SAMPLES) - existing_apps} sample applications for {DEMO_EMAIL}.")
 
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM credit_applications WHERE user_id = ?", (user_id,)).fetchone()[0]
     con.close()
     print(f"Demo user application count: {total}")
-    print("\nDemo credentials: demo@creditiq.com / demo123")
+    print(f"\nDemo credentials: {DEMO_EMAIL} / {DEMO_PASSWORD}")
 
 
 if __name__ == "__main__":
