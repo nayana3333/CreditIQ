@@ -8,6 +8,12 @@ A full-stack decision intelligence application that uses machine learning,
 explainable AI, and cost-based threshold tuning to assess credit risk and
 recommend lending policies.
 
+## Live Preview
+
+- Frontend preview: [https://credit-iq-five.vercel.app](https://credit-iq-five.vercel.app)
+- Full-stack demo: run locally with the steps below, or connect the frontend to
+  a deployed backend using `VITE_API_BASE_URL`.
+
 ## Research Foundation
 
 This project implements and extends ideas from:
