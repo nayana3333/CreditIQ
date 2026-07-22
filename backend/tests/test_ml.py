@@ -60,6 +60,29 @@ def test_predict_empty_body_does_not_crash(client):
     assert res.status_code != 500
 
 
+def test_predict_rejects_unknown_categorical_code(client):
+    res = client.post("/api/v1/ml/predict", json={**SAMPLE_APPLICATION, "checking_status": "NOT_A_REAL_CODE"})
+    assert res.status_code == 400
+    data = res.get_json()
+    assert "checking_status" in data["field_errors"]
+
+
+def test_predict_rejects_out_of_range_numeric(client):
+    res = client.post("/api/v1/ml/predict", json={**SAMPLE_APPLICATION, "age": 500})
+    assert res.status_code == 400
+    data = res.get_json()
+    assert "age" in data["field_errors"]
+
+
+def test_batch_reports_invalid_rows_without_crashing(client):
+    rows = [SAMPLE_APPLICATION, {**SAMPLE_APPLICATION, "duration": -5}]
+    res = client.post("/api/v1/ml/batch", json={"rows": rows})
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["summary"]["invalid"] == 1
+    assert "field_errors" in data["results"][1]
+
+
 def test_metrics_endpoint_returns_model_scores(client):
     res = client.get("/api/v1/ml/metrics")
     assert res.status_code == 200

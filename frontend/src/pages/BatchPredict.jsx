@@ -138,10 +138,11 @@ export default function BatchPredict() {
             <p className="ci-section-title">Results - {results.summary.total} applicants</p>
             <button className="ci-button-secondary" onClick={() => downloadCsv("creditiq-batch-results.csv", results.results)}>Export CSV</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${results.summary.invalid ? 5 : 4}, 1fr)`, gap: 12, marginBottom: 20 }}>
             <MetricCard label="Total" value={results.summary.total} />
             <MetricCard label="Approved" value={results.summary.approved} valueColor="#111111" />
             <MetricCard label="Rejected" value={results.summary.rejected} valueColor="#111111" />
+            {results.summary.invalid > 0 && <MetricCard label="Invalid rows" value={results.summary.invalid} valueColor="#A32D2D" />}
             <MetricCard label="Consensus" value={`${results.summary.consensus_rate}%`} sub="Both models agree" />
           </div>
           <div style={{ overflowX: "auto" }}>
@@ -152,7 +153,17 @@ export default function BatchPredict() {
                 </tr>
               </thead>
               <tbody>
-                {results.results.map((row) => (
+                {results.results.map((row) => row.error ? (
+                  <tr key={row.row} style={{ borderBottom: "1px solid #F7F5F0" }}>
+                    <td style={{ fontSize: 12, fontFamily: "var(--font-mono)", padding: "8px 12px", color: "#737373" }}>#{row.row}</td>
+                    <td colSpan={7} style={{ padding: "8px 12px" }}>
+                      <Badge status="danger">Invalid</Badge>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "#A32D2D" }}>
+                        {Object.entries(row.field_errors || {}).map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`).join(" · ")}
+                      </span>
+                    </td>
+                  </tr>
+                ) : (
                   <tr key={row.row} style={{ borderBottom: "1px solid #F7F5F0" }}>
                     <td style={{ fontSize: 12, fontFamily: "var(--font-mono)", padding: "8px 12px", color: "#737373" }}>#{row.row}</td>
                     <td style={{ padding: "8px 12px" }}><Badge status={row.lr_decision}>{row.lr_decision}</Badge></td>

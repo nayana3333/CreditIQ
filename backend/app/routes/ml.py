@@ -8,6 +8,7 @@ import io
 import json
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required, verify_jwt_in_request
+from marshmallow import Schema, ValidationError, fields, validate
 
 from ..finance import clamp
 from ..extensions import db
@@ -121,6 +122,56 @@ except Exception:
     shap = None
     lr_shap_explainer = None
     rf_shap_explainer = None
+
+
+NUMERIC_RANGES = {
+    "duration": (1, 120),
+    "credit_amount": (1, 100000),
+    "installment_rate": (1, 4),
+    "residence_since": (1, 10),
+    "age": (18, 100),
+    "existing_credits": (1, 10),
+    "num_dependents": (1, 10),
+}
+
+
+def _build_credit_application_schema():
+    """Build a validation schema straight from the trained artifacts, so the
+    set of accepted categorical codes can never drift out of sync with what
+    the encoders/model were actually trained on."""
+    field_defs = {}
+    for feature in feature_names:
+        if feature in NUMERIC_RANGES:
+            low, high = NUMERIC_RANGES[feature]
+            number_field = fields.Float if feature == "credit_amount" else fields.Integer
+            field_defs[feature] = number_field(validate=validate.Range(min=low, max=high))
+        elif feature in ORDINAL_MAPS:
+            field_defs[feature] = fields.Str(validate=validate.OneOf(list(ORDINAL_MAPS[feature].keys())))
+        else:
+            encoder = label_encoders.get(feature)
+            valid_codes = list(encoder.classes_) if encoder is not None else None
+            field_defs[feature] = fields.Str(validate=validate.OneOf(valid_codes)) if valid_codes else fields.Str()
+    return Schema.from_dict(field_defs)(partial=True, unknown="exclude")
+
+
+credit_application_schema = _build_credit_application_schema()
+
+
+def _credit_payload_errors(data):
+    """Returns a dict of field -> error messages, or None if the payload is valid."""
+    try:
+        credit_application_schema.load(data)
+    except ValidationError as exc:
+        return exc.messages
+    return None
+
+
+def _validate_credit_payload(data):
+    """Returns None on success, or a (response, status_code) tuple to return immediately."""
+    field_errors = _credit_payload_errors(data)
+    if field_errors:
+        return jsonify({"error": "Invalid application data.", "field_errors": field_errors}), 400
+    return None
 
 
 def _normalize_credit_payload(data):
@@ -359,6 +410,9 @@ def _application_payload(item, include_shap=False):
 @ml_bp.post("/predict")
 def predict_credit_decision():
     data = request.get_json() or {}
+    invalid = _validate_credit_payload(data)
+    if invalid:
+        return invalid
     result = _dual_credit_prediction(data)
     result["application_id"] = _save_application_if_authenticated(result)
     selected_model = data.get("model", "both")
@@ -486,6 +540,9 @@ def business_impact():
 @ml_bp.post("/simulate")
 def simulate_credit_decision():
     data = request.get_json() or {}
+    invalid = _validate_credit_payload(data)
+    if invalid:
+        return invalid
     vary_field = data.get("vary_field", "credit_amount")
     vary_range = data.get("vary_range") or [1000, 2000, 3000, 4000, 5000, 7500, 10000]
     scenarios = []
@@ -524,8 +581,14 @@ def batch_credit_decision():
     approved = 0
     rejected = 0
     consensus_count = 0
+    invalid = 0
 
     for index, row in enumerate(rows, 1):
+        field_errors = _credit_payload_errors(row)
+        if field_errors:
+            invalid += 1
+            results.append({"row": index, "error": "invalid application data", "field_errors": field_errors})
+            continue
         prediction = _dual_credit_prediction(row)
         final_decision = prediction["final_decision"]
         approved += 1 if final_decision == "approved" else 0
@@ -547,13 +610,15 @@ def batch_credit_decision():
         )
 
     total = len(results)
+    scored = total - invalid
     return jsonify(
         {
             "summary": {
                 "total": total,
                 "approved": approved,
                 "rejected": rejected,
-                "consensus_rate": round((consensus_count / total) * 100, 1) if total else 0,
+                "invalid": invalid,
+                "consensus_rate": round((consensus_count / scored) * 100, 1) if scored else 0,
             },
             "results": results,
         }

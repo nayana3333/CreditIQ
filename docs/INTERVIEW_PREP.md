@@ -108,6 +108,7 @@ flowchart TB
 | **scikit-learn** | Trains and runs the Logistic Regression + Random Forest models | `fit`/`predict`/`predict_proba`, `train_test_split`, `StandardScaler` |
 | **pandas / numpy** | Data wrangling — building the feature DataFrame per request | DataFrame basics, `.map()`, dtypes |
 | **SHAP** | Explains individual predictions — which features pushed the score which way | `LinearExplainer` vs `TreeExplainer`, what a Shapley value is conceptually |
+| **marshmallow** | Validates every incoming credit-application payload (`/predict`, `/simulate`, `/batch`, `/loans`) before it touches the model | `Schema.from_dict()`, `fields.Integer/Float/Str`, `validate.Range`/`validate.OneOf`, catching `ValidationError` |
 | **gunicorn** | Production WSGI server (Flask's built-in server isn't for production) | Why dev servers aren't production-safe |
 | **pytest / pytest-flask** | Automated tests (regression thresholds + explainability sanity checks) | Fixtures, `assert`, test client pattern |
 
@@ -356,6 +357,7 @@ Since FN costs ~5.6× more than FP per case in this model, the "optimal" policy 
 ## Part 8 — Security & Production Readiness
 
 **What's done well:**
+- Real input validation on every credit-application-shaped endpoint (`/ml/predict`, `/ml/simulate`, `/ml/batch`, `/loans`) via a `marshmallow` schema built in [ml.py](../backend/app/routes/ml.py) (`_build_credit_application_schema`). The schema's valid categorical codes are read directly from the trained `label_encoders`/`ORDINAL_MAPS` rather than a separately hand-maintained list, so validation can never silently drift out of sync with what the model was actually trained on. Bad input returns a clean `400` with per-field `field_errors` instead of being silently coerced/defaulted; batch uploads report which specific rows were invalid (`summary.invalid`) instead of failing the whole batch or mispredicting on garbage.
 - Passwords hashed with `werkzeug.security` (PBKDF2), never stored/returned in plaintext.
 - JWT-based stateless auth, 1-hour access token expiry.
 - Rate limiting on register/login (5/min) to slow credential-stuffing/brute-force.
@@ -442,6 +444,7 @@ The German Credit dataset is ~70% good-credit / 30% bad-credit — imbalanced en
 29. **What happens if the model `.pkl` files don't exist (e.g., fresh clone, not yet trained)?** → `_load_pickle` catches the exception and returns `None`/defaults; `_predict_probabilities` then falls back to a simple heuristic formula based on loan amount and duration instead of crashing.
 30. **How does "optional" JWT auth work on `/ml/predict`?** → `verify_jwt_in_request(optional=True)` — doesn't raise if no/invalid token is present, `get_jwt_identity()` just returns `None` in that case.
 31. **Why does Random Forest use the final decision instead of Logistic Regression?** → It had higher accuracy/ROC-AUC in training; a `consensus` boolean is still surfaced so the UI can flag when the two models disagree.
+31b. **How is input validated, and why derive it from the encoders instead of hardcoding a list?** → `_build_credit_application_schema()` in `ml.py` builds a `marshmallow` schema by reading valid categorical codes straight out of `label_encoders`/`ORDINAL_MAPS` and numeric bounds from a small `NUMERIC_RANGES` dict, for every feature the model was actually trained on. Hardcoding a separate list of "valid codes" would silently go stale the moment the training data or encoders changed (exactly the kind of drift that caused the Part 9 encoding bug) — deriving it from the live artifacts means validation and the model can never disagree about what's a legal input.
 32. **How would you add a third model?** → Add its `.pkl` load, a case in `_credit_model_result`/`_predict_probabilities`, decide how it affects `final_decision`/`consensus` (e.g., majority vote among 3).
 
 ### Business/product

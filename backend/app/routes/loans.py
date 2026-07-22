@@ -6,6 +6,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from ..extensions import db
 from ..finance import amortization_schedule, loan_months, money
 from ..models import Loan, LoanDecision
+from .ml import _credit_payload_errors
 
 loans_bp = Blueprint("loans", __name__)
 
@@ -38,6 +39,11 @@ def _loan_payload(item):
 def add_loan():
     user_id = int(get_jwt_identity())
     data = request.get_json() or {}
+
+    field_errors = _credit_payload_errors(data)
+    if field_errors:
+        return jsonify({"error": "Invalid application data.", "field_errors": field_errors}), 400
+
     try:
         loan_amount = money(data.get("loan_amount", data.get("credit_amount", 0)))
         emi = money(data.get("emi", 0))
