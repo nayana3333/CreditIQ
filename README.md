@@ -68,11 +68,28 @@ Run `python backend/train_models.py` to reproduce local model artifacts. The ana
 
 | Metric | Logistic Regression | Random Forest |
 | --- | ---: | ---: |
-| Accuracy | 76.5% | 79.5% |
-| Precision | 62.7% | 73.2% |
-| Recall | 53.3% | 50.0% |
-| F1-Score | 57.7% | 59.4% |
-| ROC-AUC | 0.7905 | 0.7945 |
+| Accuracy | 71.0% | 79.5% |
+| Precision | 51.2% | 73.2% |
+| Recall | 73.3% | 50.0% |
+| F1-Score | 60.3% | 59.4% |
+| ROC-AUC | 0.7908 | 0.7945 |
+
+**Class imbalance handling**: the German Credit dataset is ~70% good-credit /
+30% bad-credit. Logistic Regression trains with `class_weight="balanced"`,
+which reweights the loss so misclassifying the minority (bad-credit) class
+costs more during training. This is a real, expected precision/recall
+tradeoff, not a regression: LR's recall on bad-credit applicants rose from
+53.3% to 73.3% (it now catches far more actual defaulters), at the cost of
+precision (62.7% to 51.2%) and raw accuracy (76.5% to 71.0%), while ROC-AUC -
+a threshold-independent ranking metric - stayed essentially unchanged
+(0.7905 to 0.7908), confirming the model's underlying ability to separate
+good from bad applicants didn't change, only where its decision boundary
+sits. Random Forest was also evaluated with `class_weight="balanced"` and
+`"balanced_subsample"`; both *reduced* its recall on this dataset (an
+ensemble's split-based weighting doesn't behave like a linear model's shifted
+decision boundary), so RF keeps its default (unweighted) training and its
+precision/recall/business-cost tradeoff is instead controlled via the
+threshold tuning in the Business Impact page.
 
 ## Explainability Validation
 

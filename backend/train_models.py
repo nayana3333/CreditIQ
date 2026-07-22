@@ -176,7 +176,7 @@ def main():
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    lr = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42)
+    lr = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42, class_weight="balanced")
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
     lr.fit(X_train_scaled, y_train)
     rf.fit(X_train, y_train)
