@@ -9,7 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import GridSearchCV, cross_val_score, train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -145,6 +145,23 @@ def encode_features(df):
     return encoded, label_encoders
 
 
+PARAM_GRIDS = {
+    "lr": {"C": [0.01, 0.1, 1, 10]},
+    "rf": {"n_estimators": [100, 200], "max_depth": [None, 10], "min_samples_leaf": [1, 2]},
+    "xgb": {"n_estimators": [100, 200], "max_depth": [3, 5], "learning_rate": [0.05, 0.1]},
+}
+
+
+def tune(name, estimator, X, y):
+    """Grid search over a small, CI-friendly parameter grid, scoring on
+    ROC-AUC (threshold-independent, matches how we report model quality
+    elsewhere). Returns the refit best estimator and the params that won,
+    so the choice is documented rather than hidden inside a pickle."""
+    search = GridSearchCV(estimator, PARAM_GRIDS[name], cv=5, scoring="roc_auc", n_jobs=-1)
+    search.fit(X, y)
+    return search.best_estimator_, search.best_params_
+
+
 def evaluate(name, model, X_test, y_test, probabilities, feature_names):
     pred = model.predict(X_test)
     fpr, tpr, _ = roc_curve(y_test, probabilities)
@@ -177,12 +194,12 @@ def main():
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
     X_test_scaled = scaler.transform(X_test)
-    lr = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42, class_weight="balanced")
-    rf = RandomForestClassifier(n_estimators=100, random_state=42)
-    xgb = XGBClassifier(n_estimators=100, random_state=42, eval_metric="logloss")
-    lr.fit(X_train_scaled, y_train)
-    rf.fit(X_train, y_train)
-    xgb.fit(X_train, y_train)
+    lr_base = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42, class_weight="balanced")
+    rf_base = RandomForestClassifier(random_state=42)
+    xgb_base = XGBClassifier(random_state=42, eval_metric="logloss")
+    lr, lr_best_params = tune("lr", lr_base, X_train_scaled, y_train)
+    rf, rf_best_params = tune("rf", rf_base, X_train, y_train)
+    xgb, xgb_best_params = tune("xgb", xgb_base, X_train, y_train)
     lr_prob = lr.predict_proba(X_test_scaled)[:, 1]
     rf_prob = rf.predict_proba(X_test)[:, 1]
     xgb_prob = xgb.predict_proba(X_test)[:, 1]
@@ -191,6 +208,9 @@ def main():
         "rf": evaluate("rf", rf, X_test, y_test, rf_prob, feature_names),
         "xgb": evaluate("xgb", xgb, X_test, y_test, xgb_prob, feature_names),
     }
+    model_metrics["lr"]["best_params"] = lr_best_params
+    model_metrics["rf"]["best_params"] = rf_best_params
+    model_metrics["xgb"]["best_params"] = xgb_best_params
     model_metrics["roc_curves"] = {
         "lr": {"fpr": model_metrics["lr"]["roc_fpr"], "tpr": model_metrics["lr"]["roc_tpr"]},
         "rf": {"fpr": model_metrics["rf"]["roc_fpr"], "tpr": model_metrics["rf"]["roc_tpr"]},
@@ -219,6 +239,10 @@ def main():
     print(f"\n{'Metric':<12}{'LR':>10}{'RF':>10}{'XGB':>10}")
     for metric in ["accuracy", "precision", "recall", "f1", "roc_auc"]:
         print(f"{metric:<12}{model_metrics['lr'][metric]:>10.4f}{model_metrics['rf'][metric]:>10.4f}{model_metrics['xgb'][metric]:>10.4f}")
+    print("\n--- Best hyperparameters (5-fold GridSearchCV, scoring=roc_auc) ---")
+    print(f"LR:  {lr_best_params}")
+    print(f"RF:  {rf_best_params}")
+    print(f"XGB: {xgb_best_params}")
     print("\n--- Ordinal feature coefficient check (after retraining) ---")
     for feat in ORDINAL_MAPS:
         coef = model_metrics["lr"]["coefficients"].get(feat)

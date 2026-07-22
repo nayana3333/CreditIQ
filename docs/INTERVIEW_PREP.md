@@ -105,7 +105,7 @@ flowchart TB
 | **Flask-Limiter** | Rate limiting (5 login attempts/min) to slow brute-force attacks | What rate limiting is, why `key_func=get_remote_address` (per-IP) |
 | **Flask-CORS** | Lets the React frontend (different origin/port) call this API | Same-origin policy, why browsers block cross-origin requests by default |
 | **SQLite / PostgreSQL** | Local dev DB / production DB (switch via `DATABASE_URL` env var) | SQL basics: SELECT/INSERT/foreign keys/indexes |
-| **scikit-learn** | Trains and runs the Logistic Regression + Random Forest models | `fit`/`predict`/`predict_proba`, `train_test_split`, `StandardScaler` |
+| **scikit-learn** | Trains and runs the Logistic Regression + Random Forest models | `fit`/`predict`/`predict_proba`, `train_test_split`, `StandardScaler`, `GridSearchCV` |
 | **pandas / numpy** | Data wrangling — building the feature DataFrame per request | DataFrame basics, `.map()`, dtypes |
 | **SHAP** | Explains individual predictions — which features pushed the score which way | `LinearExplainer` vs `TreeExplainer`, what a Shapley value is conceptually |
 | **marshmallow** | Validates every incoming credit-application payload (`/predict`, `/simulate`, `/batch`, `/loans`) before it touches the model | `Schema.from_dict()`, `fields.Integer/Float/Str`, `validate.Range`/`validate.OneOf`, catching `ValidationError` |
@@ -166,7 +166,7 @@ Every other categorical feature (purpose, job type, housing, etc.) has **no natu
 - An ensemble of 100 decision trees, each trained on a random subset of data/features (bagging), predictions averaged.
 - Captures non-linear relationships and feature interactions automatically.
 - Less directly interpretable per-feature (no single coefficient) — that's exactly why **SHAP** is needed for RF, whereas LR's own coefficients are already somewhat interpretable.
-- In this project, RF scored slightly higher (79.5% accuracy vs 76.5%), so its decision is used as the **final/primary decision**, while LR is still shown for comparison and disagreement-detection (`consensus` flag).
+- In this project, RF scores higher on both accuracy and ROC-AUC than LR after tuning (77.5% accuracy / 0.8074 ROC-AUC vs LR's 71.5% / 0.7931), so its decision is used as the **final/primary decision**, while LR is still shown for comparison and disagreement-detection (`consensus` flag). See Part 9 for how XGBoost compares once tuned too.
 
 ### Metrics — plain English (memorize these formulas)
 
@@ -398,11 +398,17 @@ The German Credit dataset is ~70% good-credit / 30% bad-credit — imbalanced en
 
 **Why this is a strong answer**: it shows you didn't just cargo-cult "always add class_weight='balanced' for imbalanced data" — you tested it, understood *why* it behaved differently across model families, and made — then documented — a considered choice instead of applying a blanket fix. That's a materially better answer than either "we didn't handle imbalance" (the original gap) or "we added class_weight and it fixed everything" (glosses over the RF result).
 
-### The XGBoost benchmark story (pre-empts "did you try boosting?")
+### The XGBoost + hyperparameter-tuning story (your strongest ML talking point)
 
-Added `XGBClassifier` (default hyperparameters) as a third model, trained and evaluated exactly like LR/RF, purely as a **benchmark** — it is not wired into `/predict`/`/simulate`/`/batch`, Random Forest stays the production model. Result: XGBoost scored *lower* than RF with default settings (75.0% vs 79.5% accuracy, 0.7804 vs 0.7945 ROC-AUC).
+This one has two acts, and telling both is what makes it strong.
 
-**Why this is the right answer to give, not a weakness to hide**: gradient-boosted trees are well known to need real hyperparameter tuning (learning rate, max depth, subsampling, number of rounds/early stopping) to realize their advantage over bagged ensembles — and this dataset only has ~800 training rows after the split, which favors RF's more robust-by-default bagging. If asked "why didn't you just tune XGBoost until it won," the honest answer is: that's a legitimate next step (see Tier 2 hyperparameter-tuning item), but shipping an untuned model that scores worse than what's already in production, just to say "we use XGBoost," would be optimizing for the wrong thing — the actual production model should be whichever one is genuinely best validated, not whichever sounds more advanced.
+**Act 1 — untuned benchmark.** Added `XGBClassifier` (library defaults) as a third model, trained and evaluated exactly like LR/RF, purely as a **benchmark** — not wired into `/predict`/`/simulate`/`/batch`, Random Forest stays the production model. Result: XGBoost scored *lower* than RF with default settings (75.0% vs 79.5% accuracy, 0.7804 vs 0.7945 ROC-AUC). Expected: gradient-boosted trees generally need real tuning to beat a bagged ensemble, especially on a small (~800-row training) dataset where RF's bagging is robust out of the box.
+
+**Act 2 — hyperparameter tuning changes the verdict.** Ran a 5-fold `GridSearchCV` (scoring on ROC-AUC) over all three models (`train_models.py`, `PARAM_GRIDS`/`tune()`). Two results worth knowing cold:
+1. **Tuning optimizes what you tell it to, not everything at once.** RF's ROC-AUC improved (0.7945 → 0.8074) but its accuracy *dropped* (79.5% → 77.5%) and recall dropped further (50.0% → 43.3%) — because grid search was scored purely on ROC-AUC, which doesn't know or care about the 0.5 decision threshold's accuracy/recall. This is a real, explainable side effect, not a bug.
+2. **Tuned, XGBoost and RF are a statistical tie on ROC-AUC** (0.8077 vs 0.8074) — a complete reversal from the untuned result where RF clearly won. Random Forest still stays the production model (the tie doesn't justify ripping out the SHAP `TreeExplainer`, business-impact assumptions, and tests already built around it), but the honest conclusion is: **an untuned model comparison isn't a fair verdict on which algorithm is better — only a tuned comparison is.**
+
+**Why this is your best answer**: it demonstrates the full arc — benchmark honestly, don't declare a winner prematurely, tune systematically, and then make a *documented, reasoned* production choice even when the "objectively best" model is genuinely a toss-up. That's a materially more sophisticated answer than "we picked RF because it had the highest accuracy," and it pre-empts nearly every possible follow-up question about model selection methodology.
 
 ---
 
@@ -416,7 +422,8 @@ Added `XGBClassifier` (default hyperparameters) as a third model, trained and ev
 
 ### ML fundamentals
 5. **Logistic Regression vs Random Forest — what's the difference?** → Part 4. LR = linear/interpretable/fast; RF = ensemble of trees, captures non-linearity, less directly interpretable.
-5b. **Did you try gradient boosting (XGBoost/LightGBM)?** → Yes — see the XGBoost benchmark story above (Part 9). It scored lower than RF *with default hyperparameters*, and the honest reason why (small dataset, boosting needs tuning to shine) is a better answer than either not having tried it or having force-fit it to "win."
+5b. **Did you try gradient boosting (XGBoost/LightGBM)?** → Yes — see the XGBoost + tuning story above (Part 9). Untuned, it lost to RF (small dataset, boosting needs tuning to shine); after a 5-fold GridSearchCV on all three models, XGBoost's ROC-AUC essentially tied RF's (0.8077 vs 0.8074). RF stayed the production model since a tie doesn't justify replacing everything already built around it.
+5c. **How did you pick your hyperparameters?** → 5-fold `GridSearchCV` scored on ROC-AUC (`train_models.py`'s `tune()`/`PARAM_GRIDS`), not manual guessing or library defaults. Best found: LR `C=0.01`, RF `max_depth=10, min_samples_leaf=1, n_estimators=100`, XGB `learning_rate=0.1, max_depth=3, n_estimators=100`. Worth mentioning the RF accuracy/recall trade-off this caused (Part 9) if asked to go deeper — it shows you understand tuning optimizes exactly the metric you score on, nothing else.
 6. **Why scale features for LR but not RF?** → LR's weighted sum is scale-sensitive; tree splits aren't.
 7. **What is overfitting, and how do you guard against it here?** → Model memorizes training noise instead of generalizing; guarded here via train/test split, 5-fold cross-validation, and RF's inherent averaging over many trees (bagging reduces variance).
 8. **Why stratify the train/test split?** → Keeps the good/bad class ratio consistent in both sets; important because defaults are the minority class and a random split could accidentally starve the test set of them.
@@ -479,11 +486,12 @@ Added `XGBClassifier` (default hyperparameters) as a third model, trained and ev
 
 ## Part 11 — Cheat Sheet
 
-**Key numbers to have memorized cold:**
+**Key numbers to have memorized cold (post-tuning, current as of the GridSearchCV pass):**
 - Dataset: 1,000 applications, 20 features, UCI German Credit (~70% good / 30% bad — imbalanced).
-- RF: 79.5% accuracy, 73.2% precision, 50.0% recall, 59.4% F1, 0.7945 ROC-AUC (unweighted — see imbalance note below). **This is the production model.**
-- LR: 71.0% accuracy, 51.2% precision, 73.3% recall, 60.3% F1, 0.7908 ROC-AUC (trained with `class_weight="balanced"`).
-- XGBoost (benchmark only, not in production): 75.0% accuracy, 59.3% precision, 53.3% recall, 56.1% F1, 0.7804 ROC-AUC — underperformed RF with default hyperparameters.
+- RF: 77.5% accuracy, 70.3% precision, 43.3% recall, 53.6% F1, 0.8074 ROC-AUC (tuned: `max_depth=10, min_samples_leaf=1, n_estimators=100`). **This is the production model.**
+- LR: 71.5% accuracy, 51.8% precision, 73.3% recall, 60.7% F1, 0.7931 ROC-AUC (tuned `C=0.01`, trained with `class_weight="balanced"`).
+- XGBoost (benchmark only, not in production): 76.5% accuracy, 63.3% precision, 51.7% recall, 56.9% F1, 0.8077 ROC-AUC (tuned: `learning_rate=0.1, max_depth=3, n_estimators=100`) — untuned it lost to RF; tuned, it's a statistical tie with RF on ROC-AUC.
+- All three tuned via 5-fold `GridSearchCV` scored on ROC-AUC.
 - Encoding fix impact: RF accuracy 77.5% → 79.5%, ROC-AUC 0.78 → 0.79.
 - Class-imbalance fix impact: LR recall on bad-credit applicants 53.3% → 73.3% after `class_weight="balanced"`, while ROC-AUC stayed ~flat (0.7905 → 0.7908) — proof the boundary shifted, not the model's underlying discriminative power. RF's recall got *worse* under the same weighting, so RF was kept unweighted and its tradeoff is controlled via threshold tuning instead (Part 7).
 - Business assumptions: ₹35,000 avg loan, ₹14,000/missed-default, ₹2,500/wrongly-rejected-customer.

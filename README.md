@@ -68,41 +68,52 @@ Run `python backend/train_models.py` to reproduce local model artifacts. The ana
 
 | Metric | Logistic Regression | Random Forest | XGBoost (benchmark) |
 | --- | ---: | ---: | ---: |
-| Accuracy | 71.0% | 79.5% | 75.0% |
-| Precision | 51.2% | 73.2% | 59.3% |
-| Recall | 73.3% | 50.0% | 53.3% |
-| F1-Score | 60.3% | 59.4% | 56.1% |
-| ROC-AUC | 0.7908 | 0.7945 | 0.7804 |
+| Accuracy | 71.5% | 77.5% | 76.5% |
+| Precision | 51.8% | 70.3% | 63.3% |
+| Recall | 73.3% | 43.3% | 51.7% |
+| F1-Score | 60.7% | 53.6% | 56.9% |
+| ROC-AUC | 0.7931 | 0.8074 | 0.8077 |
 
 **Class imbalance handling**: the German Credit dataset is ~70% good-credit /
 30% bad-credit. Logistic Regression trains with `class_weight="balanced"`,
 which reweights the loss so misclassifying the minority (bad-credit) class
 costs more during training. This is a real, expected precision/recall
-tradeoff, not a regression: LR's recall on bad-credit applicants rose from
-53.3% to 73.3% (it now catches far more actual defaulters), at the cost of
-precision (62.7% to 51.2%) and raw accuracy (76.5% to 71.0%), while ROC-AUC -
-a threshold-independent ranking metric - stayed essentially unchanged
-(0.7905 to 0.7908), confirming the model's underlying ability to separate
-good from bad applicants didn't change, only where its decision boundary
-sits. Random Forest was also evaluated with `class_weight="balanced"` and
-`"balanced_subsample"`; both *reduced* its recall on this dataset (an
-ensemble's split-based weighting doesn't behave like a linear model's shifted
-decision boundary), so RF keeps its default (unweighted) training and its
-precision/recall/business-cost tradeoff is instead controlled via the
-threshold tuning in the Business Impact page.
+tradeoff, not a regression: LR's recall on bad-credit applicants is far
+higher than RF's (73.3% vs 43.3%) at the cost of precision, while its
+ROC-AUC stays competitive with the other two models - confirming the
+model's underlying ability to separate good from bad applicants is intact,
+only where its decision boundary sits has moved. Random Forest was also
+evaluated with `class_weight="balanced"` and `"balanced_subsample"`; both
+*reduced* its recall on this dataset (an ensemble's split-based weighting
+doesn't behave like a linear model's shifted decision boundary), so RF keeps
+its default (unweighted) training and its precision/recall/business-cost
+tradeoff is instead controlled via the threshold tuning in the Business
+Impact page.
 
-**XGBoost benchmark**: an `XGBClassifier` (default hyperparameters, no
-tuning) is trained and evaluated alongside LR/RF purely as a comparison
-point - it is not wired into the live prediction routes, and Random Forest
-remains the production model. With default hyperparameters, XGBoost
-under-performed Random Forest here (75.0% vs 79.5% accuracy, 0.7804 vs
-0.7945 ROC-AUC). This is a plausible, expected result rather than a bug:
-gradient-boosted trees generally need meaningful hyperparameter tuning
-(learning rate, max depth, subsampling, early stopping) to outperform a
-well-behaved Random Forest on a small dataset (~800 training rows), whereas
-RF's bagging is comparatively robust with defaults. The benchmark is shown
-in the Analytics page (Model Performance, ROC Curves, and Confusion
-Matrices tabs) for transparency.
+**Hyperparameter tuning**: all three models are tuned with a 5-fold
+`GridSearchCV` (`train_models.py`, `PARAM_GRIDS`), scoring on ROC-AUC since
+it's the threshold-independent metric used to judge separative power. Best
+params found: LR `C=0.01` (heavier regularization), RF
+`max_depth=10, min_samples_leaf=1, n_estimators=100`, XGBoost
+`learning_rate=0.1, max_depth=3, n_estimators=100`. Two things worth calling
+out about the result: (1) tuning optimizes ROC-AUC, not accuracy or recall -
+RF's ROC-AUC improved (0.7945 to 0.8074) but its accuracy *dropped* (79.5%
+to 77.5%) and recall dropped further (50.0% to 43.3%), because the grid
+search doesn't know or care about the 0.5 decision threshold, only ranking
+quality; and (2) after tuning, XGBoost's ROC-AUC (0.8077) very narrowly
+edges past Random Forest's (0.8074) - effectively a statistical tie. With
+default hyperparameters XGBoost had clearly under-performed RF (see prior
+benchmark note below); tuned, the two are indistinguishable. That's the
+actual lesson: an untuned model comparison isn't a fair verdict on which
+algorithm is "better" for a dataset - only a tuned comparison is. Random
+Forest remains the production model regardless, since the tie doesn't
+justify switching away from the model everything else in this app (SHAP
+explainer, business-impact assumptions, tests) is built around.
+
+**XGBoost benchmark**: `XGBClassifier` is trained and evaluated alongside
+LR/RF purely as a comparison point - it is not wired into the live
+prediction routes. The benchmark is shown in the Analytics page (Model
+Performance, ROC Curves, and Confusion Matrices tabs) for transparency.
 
 ## Explainability Validation
 
