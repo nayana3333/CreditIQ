@@ -16,4 +16,5 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "run:app"]
+ENV FLASK_APP=run.py
+CMD ["sh", "-c", "flask db upgrade && gunicorn --bind 0.0.0.0:5000 run:app"]

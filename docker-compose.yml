@@ -15,7 +15,7 @@ services:
       - "5000:5000"
     volumes:
       - creditiq-data:/data
-    command: sh -c "python create_demo_user.py && gunicorn --bind 0.0.0.0:5000 run:app"
+    command: sh -c "flask db upgrade && python create_demo_user.py && gunicorn --bind 0.0.0.0:5000 run:app"
 
   frontend:
     build:

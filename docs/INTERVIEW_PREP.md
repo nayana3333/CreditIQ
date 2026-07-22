@@ -101,6 +101,7 @@ flowchart TB
 | **Python** | Language for everything backend + ML | Basic syntax, list/dict comprehensions, `try/except`, classes |
 | **Flask** | Micro web framework — defines routes, request/response handling | Blueprints, `request`/`jsonify`, app factory pattern (`create_app`) |
 | **Flask-SQLAlchemy** | ORM — Python classes ↔ database tables, no raw SQL needed | What an ORM is, `db.Model`, `db.Column`, querying with `.filter_by()` |
+| **Flask-Migrate / Alembic** | Manages schema changes as versioned migration scripts (`backend/migrations/`) instead of ad hoc `ALTER TABLE` | `flask db init/migrate/upgrade/stamp`, why autogenerate needs an empty baseline database |
 | **Flask-JWT-Extended** | Issues and verifies JWT tokens for login sessions | What a JWT is (header.payload.signature), stateless auth, `@jwt_required()` |
 | **Flask-Limiter** | Rate limiting (5 login attempts/min) to slow brute-force attacks | What rate limiting is, why `key_func=get_remote_address` (per-IP) |
 | **Flask-CORS** | Lets the React frontend (different origin/port) call this API | Same-origin policy, why browsers block cross-origin requests by default |
@@ -210,16 +211,27 @@ Entry point. Creates the Flask app via the factory function and runs the dev ser
 Reads `.env` (via `python-dotenv`), sets `SECRET_KEY`, `JWT_SECRET_KEY`, JWT expiry (access token 1hr, refresh 7 days — though refresh tokens aren't actually issued anywhere in the current auth routes, only access tokens), and the database URL. `_database_url()` defaults to a local SQLite file unless `DATABASE_URL` is set to something other than the default (used for Postgres in production).
 
 ### `backend/app/extensions.py`
-Creates **singleton instances** of `db` (SQLAlchemy), `jwt` (JWTManager), and `limiter` (Flask-Limiter, in-memory storage, default 200/day + 50/hour per IP) *before* the app exists, so they can be imported anywhere without circular imports, then wired to the actual app inside `create_app()` via `.init_app(app)`. This is the standard Flask "application factory" pattern.
+Creates **singleton instances** of `db` (SQLAlchemy), `jwt` (JWTManager), `migrate` (Flask-Migrate/Alembic), and `limiter` (Flask-Limiter, in-memory storage, default 200/day + 50/hour per IP) *before* the app exists, so they can be imported anywhere without circular imports, then wired to the actual app inside `create_app()` via `.init_app(app)`. This is the standard Flask "application factory" pattern.
 
 ### `backend/app/__init__.py` — `create_app()`
 1. Builds the Flask app, loads config, applies CORS.
-2. Initializes db/jwt/limiter.
+2. Initializes db/jwt/limiter/migrate.
 3. Registers 5 blueprints under `/api/v1/...` prefixes.
 4. Defines root/health-check routes.
-5. Calls `db.create_all()` (creates tables if they don't exist) then `_ensure_sqlite_columns()` — a **hand-rolled lightweight migration**: since this project doesn't use Flask-Migrate/Alembic for actual migrations, this function checks (via raw `PRAGMA table_info`) whether newer columns exist on an existing local SQLite file and `ALTER TABLE ADD COLUMN`s them if missing. This only runs for SQLite (`if engine.dialect.name != "sqlite": return`) — Postgres in production is expected to start fresh or be migrated properly.
 
-*Interview note*: if asked "why not use Alembic," the honest answer is: this was the pragmatic choice for a single-developer local-first project where the schema evolved iteratively; a team project with a shared production database would need real migrations.
+Schema is managed by real Alembic migrations (`backend/migrations/`, via Flask-Migrate) rather than an implicit `db.create_all()` on every boot. `flask db upgrade` applies pending migrations; both `Dockerfile` and `docker-compose.yml` run it automatically before starting the app. See `README.md`'s "Database Migrations" section for the day-to-day workflow (`flask db migrate -m "..."` then `flask db upgrade` after changing `models.py`).
+
+*Interview note — this replaced an earlier design*: the project originally used a hand-rolled `_ensure_sqlite_columns()` function that ran `PRAGMA table_info` and `ALTER TABLE ADD COLUMN` by hand on every app boot, only for SQLite. That was a pragmatic stopgap while the schema was evolving quickly as a solo project, but it doesn't scale to a team with a shared production database (no rollback path, no migration history, silently SQLite-only). Replacing it with Flask-Migrate is a good "recognized technical debt and paid it down" story — see the migration story below.
+
+### The migration story (recognizing and retiring technical debt)
+
+**Situation**: schema changes were applied via a hand-rolled function that inspected `PRAGMA table_info` and ran raw `ALTER TABLE ADD COLUMN` statements on app startup — functional, but with no rollback path, no history of what changed and why, and silently a no-op on Postgres (`if engine.dialect.name != "sqlite": return`), which is what production actually uses.
+
+**Action**: Introduced Flask-Migrate (`migrate = Migrate()` in `extensions.py`), ran `flask db init` to scaffold `backend/migrations/`, then generated the initial migration **against a fresh, empty database** (not the existing local dev db — autogenerate diffs the live DB against the models, so diffing against an already-fully-populated dev db would silently produce an empty, useless migration). Verified the generated script created exactly the 4 tables in `models.py` with correct columns/foreign keys/indexes. Then `flask db stamp head` on the existing local dev database, which tells Alembic "this database is already at this revision" without re-running the CREATE TABLE statements against tables that already exist.
+
+**Verification, not just "it ran without an error"**: tested three scenarios end-to-end in a real running app, not just via the test suite — (1) the existing, already-populated dev database still works unchanged after being stamped; (2) a completely fresh database, migrated from scratch via `flask db upgrade`, produces exactly the 4 intended tables (no leftover legacy tables that had accumulated in the old dev db); (3) the full request lifecycle (health check, demo login, and a real `/ml/predict` call with SHAP output) works correctly against that freshly-migrated database. Also added a CI step that runs `flask db upgrade` against a throwaway database on every push, so a broken migration script fails CI immediately rather than being discovered on deploy.
+
+**Why this is a good answer**: it's not just "I added Alembic" — it shows the two things that actually matter when retrofitting migrations onto an existing schema: generating the initial migration against an empty baseline (the single most common mistake), and validating the fresh-clone path actually works rather than assuming it does because the already-migrated dev database kept working.
 
 ### `backend/app/models.py` — the 4 tables
 - **`User`**: id, name, email (unique), password_hash, created_at.
@@ -366,13 +378,14 @@ Since FN costs ~5.6× more than FP per case in this model, the "optimal" policy 
 - `safe_calculate`'s AST whitelist instead of raw `eval()` (even though currently unused — it shows the instinct).
 - CORS explicitly enabled rather than left to fail silently in dev.
 - Batch endpoint hard-caps at 100 rows (basic DoS/resource-exhaustion guard).
+- Real Alembic migrations (Flask-Migrate) manage schema changes, applied automatically via `flask db upgrade` in both `Dockerfile` and `docker-compose.yml` before the app starts, with a CI step that verifies migrations apply cleanly to a fresh database on every push (see Part 5's migration story).
 
 **What you should proactively say is NOT production-ready** (interviewers respect this more than pretending everything is perfect):
 - `SECRET_KEY`/`JWT_SECRET_KEY` default to hardcoded dev values in `config.py` if the `.env` var is missing — fine locally, would be a real vulnerability if deployed with defaults.
 - No email verification step (login can silently auto-register, see Part 5).
 - No refresh-token flow actually implemented despite `JWT_REFRESH_TOKEN_EXPIRES` being configured — access tokens simply expire after 1 hour with no renewal path.
 - Business-impact costs are illustrative, not calibrated.
-- SQLite is fine for a demo; a real production deployment needs Postgres (already supported via `DATABASE_URL`) with proper migrations (Alembic), not the hand-rolled `_ensure_sqlite_columns`.
+- SQLite is fine for a demo; a real production deployment should move to Postgres (already supported via `DATABASE_URL`) — the migration setup works identically against either.
 - No pagination on `/ml/applications` — would need it at scale.
 
 ---
@@ -450,6 +463,7 @@ This one has two acts, and telling both is what makes it strong.
 22. **Why JWT instead of server-side sessions?** → Stateless — no server-side session store needed, scales horizontally more easily, natural fit for a decoupled SPA + API.
 23. **Why blueprints?** → Splits routes by domain (auth/ml/loans/dashboard/assistant) instead of one giant file — modularity.
 24. **Why SQLite locally but Postgres in production?** → SQLite needs zero setup for local dev; Postgres handles concurrent writes and production scale/reliability that SQLite isn't designed for.
+24b. **How do schema changes get applied — did you use raw SQL or an ORM migration tool?** → Flask-Migrate/Alembic. See the migration story (Part 9): retrofitted onto an already-evolving schema by generating the initial migration against an empty baseline database (not the existing dev db, which would've produced an empty no-op migration), then `flask db stamp head` on the existing dev database so it's marked current without re-running CREATE TABLE against tables that already exist. `flask db upgrade` now runs automatically in Docker/docker-compose before the app starts, and CI verifies migrations apply cleanly to a fresh database on every push.
 25. **Walk me through what happens when a request hits `/ml/predict`.** → Part 2's request lifecycle, verbatim.
 26. **How does the frontend know if the user is logged in?** → JWT stored in `localStorage`, checked by the `Protected` wrapper in `App.jsx`; axios interceptor watches for 401/422 to auto-logout.
 27. **Why is `/ml/predict` not behind auth, but `/ml/applications` is?** → Anonymous demo predictions should work frictionlessly; only *persisting/listing personal history* requires knowing who you are.
@@ -513,10 +527,11 @@ This one has two acts, and telling both is what makes it strong.
 1. **`Loan`+`LoanDecision` vs `CreditApplication` duplication** — the schema evolved from a general "loan" model to a cleaner unified `CreditApplication`, but the old tables/routes were kept for backward compatibility with `/loans/*` URLs. Next step: migrate fully to one table and deprecate the old routes.
 2. **`finance.py`'s `decision_support`/`score_from_finances`/`safe_calculate` are currently unused** by any live route — leftover from an earlier rule-based (non-ML) design direction. Would either wire them into a real feature (e.g., an "affordability calculator" separate from the credit-risk model) or remove them.
 3. **Business-impact rupee figures are illustrative placeholders**, not calibrated from real recovery-rate/margin data — explicitly noted in the API and README.
-4. **No real DB migrations** — `_ensure_sqlite_columns` is a hand-rolled stopgap for local SQLite only; a shared production DB needs Alembic.
-5. **No pagination** on `/ml/applications` — fine at demo scale, would need it in production.
-6. **Backend not fully deployed alongside the frontend** — the Vercel frontend preview needs a live backend URL via `VITE_API_BASE_URL` to be a fully working public demo (this is the single highest-leverage next step for showing this off in interviews).
-7. **No automated model retraining/versioning pipeline** — training is a manual `python train_models.py` step today.
+4. **No pagination** on `/ml/applications` — fine at demo scale, would need it in production.
+5. **Backend not fully deployed alongside the frontend** — the Vercel frontend preview needs a live backend URL via `VITE_API_BASE_URL` to be a fully working public demo (this is the single highest-leverage next step for showing this off in interviews).
+6. **No automated model retraining/versioning pipeline** — training is a manual `python train_models.py` step today.
+
+*(Real DB migrations were the one item on this list already fixed — see Part 5/Part 9's migration story.)*
 
 ---
 
