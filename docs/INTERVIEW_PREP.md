@@ -109,6 +109,7 @@ flowchart TB
 | **pandas / numpy** | Data wrangling — building the feature DataFrame per request | DataFrame basics, `.map()`, dtypes |
 | **SHAP** | Explains individual predictions — which features pushed the score which way | `LinearExplainer` vs `TreeExplainer`, what a Shapley value is conceptually |
 | **marshmallow** | Validates every incoming credit-application payload (`/predict`, `/simulate`, `/batch`, `/loans`) before it touches the model | `Schema.from_dict()`, `fields.Integer/Float/Str`, `validate.Range`/`validate.OneOf`, catching `ValidationError` |
+| **XGBoost** | Trained as a third, benchmark-only model to compare against LR/RF | Gradient boosting basics, why it typically needs tuning to beat a bagged ensemble on small data |
 | **gunicorn** | Production WSGI server (Flask's built-in server isn't for production) | Why dev servers aren't production-safe |
 | **pytest / pytest-flask** | Automated tests (regression thresholds + explainability sanity checks) | Fixtures, `assert`, test client pattern |
 
@@ -397,6 +398,12 @@ The German Credit dataset is ~70% good-credit / 30% bad-credit — imbalanced en
 
 **Why this is a strong answer**: it shows you didn't just cargo-cult "always add class_weight='balanced' for imbalanced data" — you tested it, understood *why* it behaved differently across model families, and made — then documented — a considered choice instead of applying a blanket fix. That's a materially better answer than either "we didn't handle imbalance" (the original gap) or "we added class_weight and it fixed everything" (glosses over the RF result).
 
+### The XGBoost benchmark story (pre-empts "did you try boosting?")
+
+Added `XGBClassifier` (default hyperparameters) as a third model, trained and evaluated exactly like LR/RF, purely as a **benchmark** — it is not wired into `/predict`/`/simulate`/`/batch`, Random Forest stays the production model. Result: XGBoost scored *lower* than RF with default settings (75.0% vs 79.5% accuracy, 0.7804 vs 0.7945 ROC-AUC).
+
+**Why this is the right answer to give, not a weakness to hide**: gradient-boosted trees are well known to need real hyperparameter tuning (learning rate, max depth, subsampling, number of rounds/early stopping) to realize their advantage over bagged ensembles — and this dataset only has ~800 training rows after the split, which favors RF's more robust-by-default bagging. If asked "why didn't you just tune XGBoost until it won," the honest answer is: that's a legitimate next step (see Tier 2 hyperparameter-tuning item), but shipping an untuned model that scores worse than what's already in production, just to say "we use XGBoost," would be optimizing for the wrong thing — the actual production model should be whichever one is genuinely best validated, not whichever sounds more advanced.
+
 ---
 
 ## Part 10 — Interview Question Bank (0 → 100)
@@ -409,6 +416,7 @@ The German Credit dataset is ~70% good-credit / 30% bad-credit — imbalanced en
 
 ### ML fundamentals
 5. **Logistic Regression vs Random Forest — what's the difference?** → Part 4. LR = linear/interpretable/fast; RF = ensemble of trees, captures non-linearity, less directly interpretable.
+5b. **Did you try gradient boosting (XGBoost/LightGBM)?** → Yes — see the XGBoost benchmark story above (Part 9). It scored lower than RF *with default hyperparameters*, and the honest reason why (small dataset, boosting needs tuning to shine) is a better answer than either not having tried it or having force-fit it to "win."
 6. **Why scale features for LR but not RF?** → LR's weighted sum is scale-sensitive; tree splits aren't.
 7. **What is overfitting, and how do you guard against it here?** → Model memorizes training noise instead of generalizing; guarded here via train/test split, 5-fold cross-validation, and RF's inherent averaging over many trees (bagging reduces variance).
 8. **Why stratify the train/test split?** → Keeps the good/bad class ratio consistent in both sets; important because defaults are the minority class and a random split could accidentally starve the test set of them.
@@ -473,8 +481,9 @@ The German Credit dataset is ~70% good-credit / 30% bad-credit — imbalanced en
 
 **Key numbers to have memorized cold:**
 - Dataset: 1,000 applications, 20 features, UCI German Credit (~70% good / 30% bad — imbalanced).
-- RF: 79.5% accuracy, 73.2% precision, 50.0% recall, 59.4% F1, 0.7945 ROC-AUC (unweighted — see imbalance note below).
+- RF: 79.5% accuracy, 73.2% precision, 50.0% recall, 59.4% F1, 0.7945 ROC-AUC (unweighted — see imbalance note below). **This is the production model.**
 - LR: 71.0% accuracy, 51.2% precision, 73.3% recall, 60.3% F1, 0.7908 ROC-AUC (trained with `class_weight="balanced"`).
+- XGBoost (benchmark only, not in production): 75.0% accuracy, 59.3% precision, 53.3% recall, 56.1% F1, 0.7804 ROC-AUC — underperformed RF with default hyperparameters.
 - Encoding fix impact: RF accuracy 77.5% → 79.5%, ROC-AUC 0.78 → 0.79.
 - Class-imbalance fix impact: LR recall on bad-credit applicants 53.3% → 73.3% after `class_weight="balanced"`, while ROC-AUC stayed ~flat (0.7905 → 0.7908) — proof the boundary shifted, not the model's underlying discriminative power. RF's recall got *worse* under the same weighting, so RF was kept unweighted and its tradeoff is controlled via threshold tuning instead (Part 7).
 - Business assumptions: ₹35,000 avg loan, ₹14,000/missed-default, ₹2,500/wrongly-rejected-customer.

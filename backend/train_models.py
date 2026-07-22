@@ -7,6 +7,7 @@ import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score, roc_curve
 from sklearn.model_selection import cross_val_score, train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -134,7 +135,7 @@ def encode_features(df):
                 raise ValueError(f"Unmapped value found in column '{col}' during ordinal encoding")
 
     remaining_categorical_cols = [
-        col for col in encoded.select_dtypes(include="object").columns
+        col for col in encoded.select_dtypes(include=["object", "str"]).columns
         if col != "target" and col not in ORDINAL_MAPS
     ]
     for col in remaining_categorical_cols:
@@ -178,34 +179,52 @@ def main():
     X_test_scaled = scaler.transform(X_test)
     lr = LogisticRegression(solver="lbfgs", max_iter=1000, random_state=42, class_weight="balanced")
     rf = RandomForestClassifier(n_estimators=100, random_state=42)
+    xgb = XGBClassifier(n_estimators=100, random_state=42, eval_metric="logloss")
     lr.fit(X_train_scaled, y_train)
     rf.fit(X_train, y_train)
+    xgb.fit(X_train, y_train)
     lr_prob = lr.predict_proba(X_test_scaled)[:, 1]
     rf_prob = rf.predict_proba(X_test)[:, 1]
+    xgb_prob = xgb.predict_proba(X_test)[:, 1]
     model_metrics = {
         "lr": evaluate("lr", lr, X_test_scaled, y_test, lr_prob, feature_names),
         "rf": evaluate("rf", rf, X_test, y_test, rf_prob, feature_names),
+        "xgb": evaluate("xgb", xgb, X_test, y_test, xgb_prob, feature_names),
     }
-    model_metrics["roc_curves"] = {"lr": {"fpr": model_metrics["lr"]["roc_fpr"], "tpr": model_metrics["lr"]["roc_tpr"]}, "rf": {"fpr": model_metrics["rf"]["roc_fpr"], "tpr": model_metrics["rf"]["roc_tpr"]}}
+    model_metrics["roc_curves"] = {
+        "lr": {"fpr": model_metrics["lr"]["roc_fpr"], "tpr": model_metrics["lr"]["roc_tpr"]},
+        "rf": {"fpr": model_metrics["rf"]["roc_fpr"], "tpr": model_metrics["rf"]["roc_tpr"]},
+        "xgb": {"fpr": model_metrics["xgb"]["roc_fpr"], "tpr": model_metrics["xgb"]["roc_tpr"]},
+    }
     model_metrics["lr"]["cv_scores"] = cross_val_score(lr, scaler.fit_transform(X), y, cv=5).tolist()
     model_metrics["rf"]["cv_scores"] = cross_val_score(rf, X, y, cv=5).tolist()
-    for key in ["lr", "rf"]:
+    model_metrics["xgb"]["cv_scores"] = cross_val_score(xgb, X, y, cv=5).tolist()
+    for key in ["lr", "rf", "xgb"]:
         scores = model_metrics[key]["cv_scores"]
         model_metrics[key]["cv_mean"] = float(np.mean(scores))
         model_metrics[key]["cv_std"] = float(np.std(scores))
-    outputs = {"logistic_model.pkl": lr, "random_forest_model.pkl": rf, "label_encoders.pkl": label_encoders, "feature_names.pkl": feature_names, "model_metrics.pkl": model_metrics, "scaler.pkl": scaler, "X_train_sample.pkl": X_train_scaled[:100]}
+    outputs = {
+        "logistic_model.pkl": lr,
+        "random_forest_model.pkl": rf,
+        "xgboost_model.pkl": xgb,
+        "label_encoders.pkl": label_encoders,
+        "feature_names.pkl": feature_names,
+        "model_metrics.pkl": model_metrics,
+        "scaler.pkl": scaler,
+        "X_train_sample.pkl": X_train_scaled[:100],
+    }
     for filename, value in outputs.items():
         with open(os.path.join(BASE_DIR, filename), "wb") as handle:
             pickle.dump(value, handle)
-    print(f"\n{'Metric':<12}{'LR':>10}{'RF':>10}")
+    print(f"\n{'Metric':<12}{'LR':>10}{'RF':>10}{'XGB':>10}")
     for metric in ["accuracy", "precision", "recall", "f1", "roc_auc"]:
-        print(f"{metric:<12}{model_metrics['lr'][metric]:>10.4f}{model_metrics['rf'][metric]:>10.4f}")
+        print(f"{metric:<12}{model_metrics['lr'][metric]:>10.4f}{model_metrics['rf'][metric]:>10.4f}{model_metrics['xgb'][metric]:>10.4f}")
     print("\n--- Ordinal feature coefficient check (after retraining) ---")
     for feat in ORDINAL_MAPS:
         coef = model_metrics["lr"]["coefficients"].get(feat)
         print(f"{feat:20s} coefficient: {coef}")
     print("--------------------------------------------------------------\n")
-    print("\nAll 7 pkl files saved.")
+    print("\nAll 8 pkl files saved (lr, rf, xgb benchmark, encoders, feature names, metrics, scaler, X_train sample).")
 
 
 if __name__ == "__main__":

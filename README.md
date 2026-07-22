@@ -66,13 +66,13 @@ cost under different risk thresholds.
 
 Run `python backend/train_models.py` to reproduce local model artifacts. The analytics page reads `backend/model_metrics.pkl` and visualizes:
 
-| Metric | Logistic Regression | Random Forest |
-| --- | ---: | ---: |
-| Accuracy | 71.0% | 79.5% |
-| Precision | 51.2% | 73.2% |
-| Recall | 73.3% | 50.0% |
-| F1-Score | 60.3% | 59.4% |
-| ROC-AUC | 0.7908 | 0.7945 |
+| Metric | Logistic Regression | Random Forest | XGBoost (benchmark) |
+| --- | ---: | ---: | ---: |
+| Accuracy | 71.0% | 79.5% | 75.0% |
+| Precision | 51.2% | 73.2% | 59.3% |
+| Recall | 73.3% | 50.0% | 53.3% |
+| F1-Score | 60.3% | 59.4% | 56.1% |
+| ROC-AUC | 0.7908 | 0.7945 | 0.7804 |
 
 **Class imbalance handling**: the German Credit dataset is ~70% good-credit /
 30% bad-credit. Logistic Regression trains with `class_weight="balanced"`,
@@ -90,6 +90,19 @@ ensemble's split-based weighting doesn't behave like a linear model's shifted
 decision boundary), so RF keeps its default (unweighted) training and its
 precision/recall/business-cost tradeoff is instead controlled via the
 threshold tuning in the Business Impact page.
+
+**XGBoost benchmark**: an `XGBClassifier` (default hyperparameters, no
+tuning) is trained and evaluated alongside LR/RF purely as a comparison
+point - it is not wired into the live prediction routes, and Random Forest
+remains the production model. With default hyperparameters, XGBoost
+under-performed Random Forest here (75.0% vs 79.5% accuracy, 0.7804 vs
+0.7945 ROC-AUC). This is a plausible, expected result rather than a bug:
+gradient-boosted trees generally need meaningful hyperparameter tuning
+(learning rate, max depth, subsampling, early stopping) to outperform a
+well-behaved Random Forest on a small dataset (~800 training rows), whereas
+RF's bagging is comparatively robust with defaults. The benchmark is shown
+in the Analytics page (Model Performance, ROC Curves, and Confusion
+Matrices tabs) for transparency.
 
 ## Explainability Validation
 

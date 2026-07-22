@@ -50,6 +50,18 @@ def test_rf_roc_auc_above_threshold():
     )
 
 
+def test_xgb_benchmark_present_and_above_threshold():
+    """XGBoost is trained purely as a benchmark comparison (see README ML
+    Results) - it is not wired into the live prediction routes, RF remains
+    the production model. This just guards that the benchmark artifact
+    stays present and reasonable after a retrain."""
+    metrics = _load_metrics()
+    assert "xgb" in metrics, "XGBoost benchmark metrics missing from model_metrics.pkl"
+    assert metrics["xgb"]["roc_auc"] > 0.70, (
+        f"XGBoost benchmark ROC-AUC dropped to {metrics['xgb']['roc_auc']}, below 0.70."
+    )
+
+
 def test_lr_roc_auc_above_threshold():
     metrics = _load_metrics()
     assert metrics["lr"]["roc_auc"] > 0.70, (

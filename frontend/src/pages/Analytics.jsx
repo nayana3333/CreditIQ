@@ -49,19 +49,23 @@ export default function Analytics() {
   const fallback = {
     lr: { accuracy: 0.765, precision: 0.627, recall: 0.533, f1: 0.577, roc_auc: 0.79, confusion_matrix: [[121, 19], [28, 32]], coefficients: {} },
     rf: { accuracy: 0.775, precision: 0.703, recall: 0.433, f1: 0.536, roc_auc: 0.78, confusion_matrix: [[129, 11], [34, 26]], feature_importances: {} },
-    roc_curves: { lr: { fpr: [0, 0.12, 0.35, 1], tpr: [0, 0.45, 0.76, 1] }, rf: { fpr: [0, 0.1, 0.32, 1], tpr: [0, 0.4, 0.78, 1] } },
+    xgb: { accuracy: 0.75, precision: 0.593, recall: 0.533, f1: 0.561, roc_auc: 0.78, confusion_matrix: [[122, 18], [28, 32]], feature_importances: {} },
+    roc_curves: { lr: { fpr: [0, 0.12, 0.35, 1], tpr: [0, 0.45, 0.76, 1] }, rf: { fpr: [0, 0.1, 0.32, 1], tpr: [0, 0.4, 0.78, 1] }, xgb: { fpr: [0, 0.14, 0.38, 1], tpr: [0, 0.42, 0.72, 1] } },
   };
   const data = metrics || fallback;
+  const hasXgb = Boolean(data.xgb);
 
-  const radarData = metricKeys.map((key) => ({ metric: metricLabels[key], lr: Number(data.lr?.[key] || 0) * 100, rf: Number(data.rf?.[key] || 0) * 100 }));
+  const radarData = metricKeys.map((key) => ({ metric: metricLabels[key], lr: Number(data.lr?.[key] || 0) * 100, rf: Number(data.rf?.[key] || 0) * 100, xgb: Number(data.xgb?.[key] || 0) * 100 }));
   const rocData = useMemo(() => {
     const lr = data.roc_curves?.lr || fallback.roc_curves.lr;
     const rf = data.roc_curves?.rf || fallback.roc_curves.rf;
-    const max = Math.max(lr.fpr.length, rf.fpr.length);
+    const xgb = data.roc_curves?.xgb;
+    const max = Math.max(lr.fpr.length, rf.fpr.length, xgb?.fpr.length || 0);
     return Array.from({ length: max }).map((_, index) => ({
-      fpr: lr.fpr[index] ?? rf.fpr[index] ?? 0,
+      fpr: lr.fpr[index] ?? rf.fpr[index] ?? xgb?.fpr[index] ?? 0,
       lr: lr.tpr[index] ?? null,
       rf: rf.tpr[index] ?? null,
+      xgb: xgb ? xgb.tpr[index] ?? null : null,
       baseline: lr.fpr[index] ?? rf.fpr[index] ?? 0,
     }));
   }, [data]);
@@ -121,15 +125,25 @@ export default function Analytics() {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
             <table className="w-full text-sm">
-              <thead className="bg-[#FFFCF7] text-left text-[#737373]"><tr><th className="p-3">Metric</th><th>Logistic Regression</th><th>Random Forest</th></tr></thead>
+              <thead className="bg-[#FFFCF7] text-left text-[#737373]"><tr><th className="p-3">Metric</th><th>Logistic Regression</th><th>Random Forest</th>{hasXgb && <th>XGBoost (benchmark)</th>}</tr></thead>
               <tbody>
                 {metricKeys.map((key, index) => {
                   const lr = Number(data.lr?.[key] || 0);
                   const rf = Number(data.rf?.[key] || 0);
-                  return <tr key={key} className={index % 2 ? "bg-[#FFFCF7]" : "bg-white"}><td className="p-3 font-semibold">{metricLabels[key]}</td><td className={lr >= rf ? "font-semibold text-[#111111]" : ""}>{key === "roc_auc" ? lr.toFixed(3) : percent(lr)}</td><td className={rf > lr ? "font-semibold text-[#111111]" : ""}>{key === "roc_auc" ? rf.toFixed(3) : percent(rf)}</td></tr>;
+                  const xgb = Number(data.xgb?.[key] || 0);
+                  const best = Math.max(lr, rf, hasXgb ? xgb : 0);
+                  return (
+                    <tr key={key} className={index % 2 ? "bg-[#FFFCF7]" : "bg-white"}>
+                      <td className="p-3 font-semibold">{metricLabels[key]}</td>
+                      <td className={lr === best ? "font-semibold text-[#111111]" : ""}>{key === "roc_auc" ? lr.toFixed(3) : percent(lr)}</td>
+                      <td className={rf === best ? "font-semibold text-[#111111]" : ""}>{key === "roc_auc" ? rf.toFixed(3) : percent(rf)}</td>
+                      {hasXgb && <td className={xgb === best ? "font-semibold text-[#111111]" : ""}>{key === "roc_auc" ? xgb.toFixed(3) : percent(xgb)}</td>}
+                    </tr>
+                  );
                 })}
               </tbody>
             </table>
+            {hasXgb && <p className="border-t border-[#F7F5F0] p-3 text-xs text-[#737373]">XGBoost is trained as a benchmark comparison only - Random Forest remains the production model used for live decisions.</p>}
           </div>
           <div className="rounded-lg border border-[#E5E5E5] bg-white p-5">
             <ResponsiveContainer width="100%" height={320}>
@@ -137,6 +151,7 @@ export default function Analytics() {
                 <PolarGrid /><PolarAngleAxis dataKey="metric" /><PolarRadiusAxis angle={30} domain={[0, 100]} />
                 <Radar name="LR" dataKey="lr" stroke="#2563EB" fill="#2563EB" fillOpacity={0.25} />
                 <Radar name="RF" dataKey="rf" stroke="#F97316" fill="#F97316" fillOpacity={0.25} />
+                {hasXgb && <Radar name="XGB" dataKey="xgb" stroke="#16A34A" fill="#16A34A" fillOpacity={0.15} />}
                 <Legend />
               </RadarChart>
             </ResponsiveContainer>
@@ -144,9 +159,9 @@ export default function Analytics() {
         </div>
       )}
 
-      {active === "ROC Curves" && <div className="rounded-lg border border-[#E5E5E5] bg-white p-5"><ResponsiveContainer width="100%" height={420}><LineChart data={rocData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="fpr" domain={[0, 1]} /><YAxis domain={[0, 1]} /><Tooltip /><Legend /><Line name={`LR (AUC = ${Number(data.lr?.roc_auc || 0).toFixed(2)})`} dataKey="lr" stroke="#2563EB" strokeWidth={3} dot={false} /><Line name={`RF (AUC = ${Number(data.rf?.roc_auc || 0).toFixed(2)})`} dataKey="rf" stroke="#F97316" strokeWidth={3} dot={false} /><Line name="No skill baseline" dataKey="baseline" stroke="#9ca3af" strokeDasharray="5 5" dot={false} /></LineChart></ResponsiveContainer></div>}
+      {active === "ROC Curves" && <div className="rounded-lg border border-[#E5E5E5] bg-white p-5"><ResponsiveContainer width="100%" height={420}><LineChart data={rocData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="fpr" domain={[0, 1]} /><YAxis domain={[0, 1]} /><Tooltip /><Legend /><Line name={`LR (AUC = ${Number(data.lr?.roc_auc || 0).toFixed(2)})`} dataKey="lr" stroke="#2563EB" strokeWidth={3} dot={false} /><Line name={`RF (AUC = ${Number(data.rf?.roc_auc || 0).toFixed(2)})`} dataKey="rf" stroke="#F97316" strokeWidth={3} dot={false} />{hasXgb && <Line name={`XGB (AUC = ${Number(data.xgb?.roc_auc || 0).toFixed(2)})`} dataKey="xgb" stroke="#16A34A" strokeWidth={3} dot={false} />}<Line name="No skill baseline" dataKey="baseline" stroke="#9ca3af" strokeDasharray="5 5" dot={false} /></LineChart></ResponsiveContainer></div>}
 
-      {active === "Confusion Matrices" && <div className="grid gap-6 lg:grid-cols-2">{matrix("Logistic Regression", data.lr?.confusion_matrix || fallback.lr.confusion_matrix)}{matrix("Random Forest", data.rf?.confusion_matrix || fallback.rf.confusion_matrix)}</div>}
+      {active === "Confusion Matrices" && <div className={`grid gap-6 ${hasXgb ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>{matrix("Logistic Regression", data.lr?.confusion_matrix || fallback.lr.confusion_matrix)}{matrix("Random Forest", data.rf?.confusion_matrix || fallback.rf.confusion_matrix)}{hasXgb && matrix("XGBoost (benchmark)", data.xgb?.confusion_matrix)}</div>}
 
       {active === "Feature Importance" && <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-lg border border-[#E5E5E5] bg-white p-5"><h3 className="font-semibold">Random Forest - Feature Importance</h3><ResponsiveContainer width="100%" height={360}><BarChart data={rfFeatures} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" /><YAxis type="category" dataKey="feature" width={150} /><Tooltip /><Bar dataKey="value" fill="#2563EB" /></BarChart></ResponsiveContainer></div>
